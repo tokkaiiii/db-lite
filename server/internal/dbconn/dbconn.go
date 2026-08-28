@@ -5,11 +5,12 @@ package dbconn
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
-	_ "github.com/sijms/go-ora/v2"
+	goora "github.com/sijms/go-ora/v2"
 
 	"dbtool/server/internal/store"
 )
@@ -36,29 +37,47 @@ func Open(c store.Connection, catalog string) (*sql.DB, error) {
 	return sql.Open(driver, dsn)
 }
 
+// driverAndDSN builds each DSN through its driver's own structured
+// builder (mysqldriver.Config, goora.BuildUrl) or net/url.URL, rather than
+// interpolating username/password into a string directly — a Connection's
+// password is arbitrary user input and may contain '@', '/', '?', '#', or
+// other characters that are only safe once properly escaped.
 func driverAndDSN(c store.Connection, catalog string) (driver, dsn string, err error) {
 	switch c.Kind {
 	case store.DBKindMSSQL:
-		dsn = fmt.Sprintf("sqlserver://%s:%s@%s:%d", c.Username, c.Password, c.Host, c.Port)
-		if catalog != "" {
-			dsn += "?database=" + catalog
+		u := url.URL{
+			Scheme: "sqlserver",
+			User:   url.UserPassword(c.Username, c.Password),
+			Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
 		}
-		return "sqlserver", dsn, nil
+		if catalog != "" {
+			u.RawQuery = url.Values{"database": {catalog}}.Encode()
+		}
+		return "sqlserver", u.String(), nil
 	case store.DBKindMySQL:
-		return "mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
-			c.Username, c.Password, c.Host, c.Port, catalog), nil
+		cfg := mysqldriver.NewConfig()
+		cfg.User = c.Username
+		cfg.Passwd = c.Password
+		cfg.Net = "tcp"
+		cfg.Addr = fmt.Sprintf("%s:%d", c.Host, c.Port)
+		cfg.DBName = catalog
+		return "mysql", cfg.FormatDSN(), nil
 	case store.DBKindPostgres:
 		if catalog == "" {
 			catalog = postgresDefaultCatalog
 		}
-		return "pgx", fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-			c.Username, c.Password, c.Host, c.Port, catalog), nil
+		u := url.URL{
+			Scheme: "postgres",
+			User:   url.UserPassword(c.Username, c.Password),
+			Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
+			Path:   "/" + catalog,
+		}
+		return "pgx", u.String(), nil
 	case store.DBKindOracle:
 		if c.ServiceName == "" {
 			return "", "", fmt.Errorf("oracle connection %q has no service name/SID configured", c.Name)
 		}
-		return "oracle", fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
-			c.Username, c.Password, c.Host, c.Port, c.ServiceName), nil
+		return "oracle", goora.BuildUrl(c.Host, c.Port, c.ServiceName, c.Username, c.Password, nil), nil
 	default:
 		return "", "", fmt.Errorf("unsupported db kind: %q", c.Kind)
 	}
