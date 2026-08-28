@@ -139,3 +139,34 @@ func TestAuditLogRoundtripsExecutedAt(t *testing.T) {
 		t.Error("ExecutedAt is zero-valued; the executed_at column was not parsed into the entry")
 	}
 }
+
+func TestDeleteConnectionSurvivesExistingAuditLogEntries(t *testing.T) {
+	s := newTestStore(t)
+	u := mustCreateUser(t, s, "alice")
+	c := mustCreateConnection(t, s, "conn1")
+
+	if err := s.InsertAuditLogEntry(AuditLogEntry{
+		UserID: u.ID, ConnectionID: c.ID, Statement: "DELETE FROM t", Allowed: true,
+	}); err != nil {
+		t.Fatalf("InsertAuditLogEntry: %v", err)
+	}
+
+	// Audit Log Entry is a persistent record — a Connection that has write
+	// history must still be deletable, and the entry must survive it
+	// (with connection_id cleared) rather than blocking the delete or
+	// vanishing with it.
+	if err := s.DeleteConnection(c.ID); err != nil {
+		t.Fatalf("DeleteConnection with existing audit log entries: %v", err)
+	}
+
+	entries, err := s.ListAuditLog(10)
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ListAuditLog after deleting the connection returned %d entries, want 1 (the entry should survive)", len(entries))
+	}
+	if entries[0].ConnectionID != 0 {
+		t.Errorf("ConnectionID = %d after deleting the connection, want 0 (cleared)", entries[0].ConnectionID)
+	}
+}
