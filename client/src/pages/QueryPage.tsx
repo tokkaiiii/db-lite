@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import CodeMirror from '@uiw/react-codemirror'
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
+import { keymap } from '@codemirror/view'
+import { Prec } from '@codemirror/state'
 import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect } from '@codemirror/lang-sql'
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
@@ -14,11 +16,27 @@ const DIALECTS: Record<DBKind, SQLDialect> = {
   oracle: PLSQL,
 }
 
+// Finds the ';'-delimited statement surrounding cursorPos in text — the
+// last ';' at or before it starts the statement, the next ';' at or after
+// it ends it. This is a plain substring scan, not a real SQL tokenizer, so
+// a ';' inside a string literal would incorrectly split a statement; good
+// enough for now, revisit if that turns out to matter in practice.
+function statementAtCursor(text: string, cursorPos: number): string {
+  let start = 0
+  for (let i = 0; i < cursorPos; i++) {
+    if (text[i] === ';') start = i + 1
+  }
+  const semiAfter = text.indexOf(';', cursorPos)
+  const end = semiAfter === -1 ? text.length : semiAfter
+  return text.slice(start, end).trim()
+}
+
 export function QueryPage() {
   const { connectionId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const catalog = searchParams.get('catalog') ?? ''
 
+  const editorRef = useRef<ReactCodeMirrorRef>(null)
   const [kind, setKind] = useState<DBKind | null>(null)
   const [catalogs, setCatalogs] = useState<string[]>([])
   const [catalogsLoaded, setCatalogsLoaded] = useState(false)
@@ -75,18 +93,27 @@ export function QueryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, catalogsLoaded, catalogs.length, catalog])
 
-  const extensions = useMemo(
-    () => [sql({ dialect: kind ? DIALECTS[kind] : undefined, schema, upperCaseKeywords: true })],
-    [kind, schema],
-  )
+  // Multiple ';'-separated statements in the editor previously got sent to
+  // the DB as one blob and failed with a confusing driver-level syntax
+  // error. Instead, run only the statement the cursor is in (or the
+  // selection, if there is one) — the same convention as most SQL editors
+  // (DBeaver, SSMS, DataGrip).
+  function statementToRun(): string {
+    const view = editorRef.current?.view
+    if (!view) return statement
+    const sel = view.state.selection.main
+    if (!sel.empty) return view.state.sliceDoc(sel.from, sel.to).trim()
+    return statementAtCursor(view.state.doc.toString(), sel.head)
+  }
 
   async function run() {
     if (!connectionId) return
+    const toRun = statementToRun()
     setRunning(true)
     setError(null)
     setResult(null)
     try {
-      const res = await api.executeQuery(Number(connectionId), statement, catalog)
+      const res = await api.executeQuery(Number(connectionId), toRun, catalog)
       setResult(res)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '실행에 실패했습니다')
@@ -94,6 +121,32 @@ export function QueryPage() {
       setRunning(false)
     }
   }
+
+  // Keeping a ref to the latest `run` lets the Ctrl/Cmd+Enter keymap below
+  // stay in one stable extension instance instead of being rebuilt (and
+  // briefly detached/reattached) on every keystroke.
+  const runRef = useRef(run)
+  runRef.current = run
+
+  const extensions = useMemo(
+    () => [
+      sql({ dialect: kind ? DIALECTS[kind] : undefined, schema, upperCaseKeywords: true }),
+      // Prec.highest so this wins over CodeMirror's own Enter-inserts-a-
+      // newline binding, which otherwise fires first for Ctrl/Cmd+Enter too.
+      Prec.highest(
+        keymap.of([
+          {
+            key: 'Mod-Enter',
+            run: () => {
+              runRef.current()
+              return true
+            },
+          },
+        ]),
+      ),
+    ],
+    [kind, schema],
+  )
 
   return (
     <div>
@@ -115,7 +168,13 @@ export function QueryPage() {
           </label>
         </div>
       )}
-      <CodeMirror value={statement} height="200px" extensions={extensions} onChange={setStatement} />
+      <CodeMirror
+        ref={editorRef}
+        value={statement}
+        height="200px"
+        extensions={extensions}
+        onChange={setStatement}
+      />
       <div>
         <button onClick={run} disabled={running}>
           실행
