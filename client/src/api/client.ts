@@ -84,6 +84,7 @@ export function adminCreateConnection(input: {
   port: number
   username: string
   password: string
+  serviceName?: string
 }) {
   return request<Connection>('/api/admin/connections', {
     method: 'POST',

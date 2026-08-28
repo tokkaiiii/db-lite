@@ -19,6 +19,7 @@ export function ConnectionsAdminPage() {
   const [port, setPort] = useState(DEFAULT_PORTS.mssql)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [serviceName, setServiceName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   function reload() {
@@ -31,11 +32,12 @@ export function ConnectionsAdminPage() {
     e.preventDefault()
     setError(null)
     try {
-      await api.adminCreateConnection({ name, kind, host, port, username, password })
+      await api.adminCreateConnection({ name, kind, host, port, username, password, serviceName })
       setName('')
       setHost('')
       setUsername('')
       setPassword('')
+      setServiceName('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '생성에 실패했습니다')
@@ -80,6 +82,13 @@ export function ConnectionsAdminPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        {kind === 'oracle' && (
+          <input
+            placeholder="서비스명/SID"
+            value={serviceName}
+            onChange={(e) => setServiceName(e.target.value)}
+          />
+        )}
         <button type="submit">추가</button>
       </form>
       {error && <p className="error">{error}</p>}
@@ -90,6 +99,7 @@ export function ConnectionsAdminPage() {
             <th>종류</th>
             <th>호스트</th>
             <th>계정</th>
+            <th>서비스명/SID</th>
             <th></th>
           </tr>
         </thead>
@@ -100,6 +110,7 @@ export function ConnectionsAdminPage() {
               <td>{c.kind}</td>
               <td>{c.host}:{c.port}</td>
               <td>{c.username}</td>
+              <td>{c.serviceName}</td>
               <td>
                 <button onClick={() => handleDelete(c.id)}>삭제</button>
               </td>

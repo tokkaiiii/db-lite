@@ -36,8 +36,11 @@ func driverAndDSN(c store.Connection) (driver, dsn string, err error) {
 		return "pgx", fmt.Sprintf("postgres://%s:%s@%s:%d/postgres",
 			c.Username, c.Password, c.Host, c.Port), nil
 	case store.DBKindOracle:
-		return "oracle", fmt.Sprintf("oracle://%s:%s@%s:%d/",
-			c.Username, c.Password, c.Host, c.Port), nil
+		if c.ServiceName == "" {
+			return "", "", fmt.Errorf("oracle connection %q has no service name/SID configured", c.Name)
+		}
+		return "oracle", fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
+			c.Username, c.Password, c.Host, c.Port, c.ServiceName), nil
 	default:
 		return "", "", fmt.Errorf("unsupported db kind: %q", c.Kind)
 	}

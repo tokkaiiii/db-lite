@@ -35,14 +35,20 @@ type User struct {
 // credential). It is the unit Permissions are granted against — not a
 // specific database/catalog, schema, or table on that server.
 type Connection struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Kind      DBKind    `json:"kind"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind DBKind `json:"kind"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	// ServiceName is the Oracle service name/SID to connect to. Oracle's
+	// CDB/PDB architecture requires one at connect time (unlike
+	// MySQL/Postgres/MSSQL, which can connect at the instance level and
+	// have the query name a database instead), so it is required for
+	// DBKindOracle connections and unused otherwise.
+	ServiceName string    `json:"serviceName"`
+	Username    string    `json:"username"`
+	Password    string    `json:"-"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // Permission is the access grade a specific User has on a specific Connection.

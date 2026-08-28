@@ -8,8 +8,8 @@ import (
 
 func (s *Store) CreateConnection(c Connection) (*Connection, error) {
 	res, err := s.db.Exec(
-		`INSERT INTO connections (name, kind, host, port, username, password) VALUES (?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Kind, c.Host, c.Port, c.Username, c.Password,
+		`INSERT INTO connections (name, kind, host, port, username, password, service_name) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Kind, c.Host, c.Port, c.Username, c.Password, c.ServiceName,
 	)
 	if err != nil {
 		return nil, err
@@ -23,14 +23,14 @@ func (s *Store) CreateConnection(c Connection) (*Connection, error) {
 
 func (s *Store) GetConnection(id int64) (*Connection, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, kind, host, port, username, password, created_at FROM connections WHERE id = ?`,
+		`SELECT id, name, kind, host, port, username, password, service_name, created_at FROM connections WHERE id = ?`,
 		id,
 	)
 	return scanConnection(row)
 }
 
 func (s *Store) ListConnections() ([]Connection, error) {
-	rows, err := s.db.Query(`SELECT id, name, kind, host, port, username, password, created_at FROM connections ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, kind, host, port, username, password, service_name, created_at FROM connections ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (s *Store) DeleteConnection(id int64) error {
 func scanConnection(row rowScanner) (*Connection, error) {
 	var c Connection
 	var createdAt string
-	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &c.Host, &c.Port, &c.Username, &c.Password, &createdAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &c.Host, &c.Port, &c.Username, &c.Password, &c.ServiceName, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}

@@ -10,12 +10,13 @@ import (
 )
 
 type createConnectionRequest struct {
-	Name     string       `json:"name"`
-	Kind     store.DBKind `json:"kind"`
-	Host     string       `json:"host"`
-	Port     int          `json:"port"`
-	Username string       `json:"username"`
-	Password string       `json:"password"`
+	Name        string       `json:"name"`
+	Kind        store.DBKind `json:"kind"`
+	Host        string       `json:"host"`
+	Port        int          `json:"port"`
+	Username    string       `json:"username"`
+	Password    string       `json:"password"`
+	ServiceName string       `json:"serviceName"`
 }
 
 func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
@@ -25,12 +26,13 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	conn, err := s.store.CreateConnection(store.Connection{
-		Name:     req.Name,
-		Kind:     req.Kind,
-		Host:     req.Host,
-		Port:     req.Port,
-		Username: req.Username,
-		Password: req.Password,
+		Name:        req.Name,
+		Kind:        req.Kind,
+		Host:        req.Host,
+		Port:        req.Port,
+		Username:    req.Username,
+		Password:    req.Password,
+		ServiceName: req.ServiceName,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, "connection name already exists")

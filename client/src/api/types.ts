@@ -15,6 +15,7 @@ export interface Connection {
   host: string
   port: number
   username: string
+  serviceName: string
   createdAt: string
 }
 
