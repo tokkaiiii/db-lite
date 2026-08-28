@@ -12,7 +12,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 
 	s, err := store.Open(cfg.SQLitePath)
 	if err != nil {
