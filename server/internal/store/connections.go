@@ -36,7 +36,7 @@ func (s *Store) ListConnections() ([]Connection, error) {
 	}
 	defer rows.Close()
 
-	var out []Connection
+	out := []Connection{}
 	for rows.Next() {
 		c, err := scanConnection(rows)
 		if err != nil {

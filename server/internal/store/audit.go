@@ -1,5 +1,7 @@
 package store
 
+import "time"
+
 func (s *Store) InsertAuditLogEntry(e AuditLogEntry) error {
 	_, err := s.db.Exec(
 		`INSERT INTO audit_log (user_id, connection_id, statement, allowed, error_message) VALUES (?, ?, ?, ?, ?)`,
@@ -19,13 +21,14 @@ func (s *Store) ListAuditLog(limit int) ([]AuditLogEntry, error) {
 	}
 	defer rows.Close()
 
-	var out []AuditLogEntry
+	out := []AuditLogEntry{}
 	for rows.Next() {
 		var e AuditLogEntry
 		var executedAt string
 		if err := rows.Scan(&e.ID, &e.UserID, &e.ConnectionID, &e.Statement, &e.Allowed, &e.ErrorMessage, &executedAt); err != nil {
 			return nil, err
 		}
+		e.ExecutedAt, _ = time.Parse(time.DateTime, executedAt)
 		out = append(out, e)
 	}
 	return out, rows.Err()

@@ -47,7 +47,7 @@ func (s *Store) ListPermissionsForUser(userID int64) ([]Permission, error) {
 	}
 	defer rows.Close()
 
-	var out []Permission
+	out := []Permission{}
 	for rows.Next() {
 		var p Permission
 		if err := rows.Scan(&p.UserID, &p.ConnectionID, &p.Level); err != nil {
