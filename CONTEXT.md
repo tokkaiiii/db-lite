@@ -17,7 +17,7 @@ _Avoid_: 관리자, 운영자
 _Avoid_: DB, 연결정보, 데이터소스
 
 **Catalog**:
-Connection 하나가 가리키는 DB 서버 인스턴스 안에 있는, 사용자가 화면에서 고르는 개별 데이터베이스(MySQL/Postgres의 `database`, Oracle의 서비스명이 가리키는 PDB 등). Permission은 Connection 단위로만 존재하므로 Catalog 선택은 Permission과 무관한 순수 화면 상태이며, 어떤 Catalog를 고르든 그 User의 Connection Permission이 그대로 적용된다.
+Connection 하나가 가리키는 DB 서버 인스턴스 안에 있는, 사용자가 화면에서 고르는 개별 데이터베이스(MySQL/Postgres/MSSQL의 `database`). Permission은 Connection 단위로만 존재하므로 Catalog 선택은 Permission과 무관한 순수 화면 상태이며, 어떤 Catalog를 고르든 그 User의 Connection Permission이 그대로 적용된다. Oracle은 Connection 등록 시 입력하는 서비스명/SID가 이미 접속 대상을 고정하므로 Catalog 개념 자체가 없다.
 _Avoid_: 데이터베이스, 스키마, DB
 
 **Permission**:

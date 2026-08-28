@@ -16,6 +16,7 @@ Docker나 JVM 설치조차 어려운 폐쇄망 Windows 서버에도 띄울 수 �
 - **User**: 이 앱에 자체 ID/PW로 로그인하는 계정. 실제 DB 계정과는 별개이며, 그 자체로는 아무 DB 접근 권한도 없습니다.
 - **Admin**: Connection을 등록/삭제하고 User에게 Permission을 부여/회수하는 상위 역할.
 - **Connection**: 하나의 DB 서버 인스턴스(호스트+포트+DB 종류+공유 계정)를 가리키는 등록 단위. Permission을 부여하는 최소 단위입니다.
+- **Catalog**: Connection 하나가 가리키는 서버 인스턴스 안에서 사용자가 화면에서 고르는 개별 데이터베이스. Permission과 무관한 순수 연결 대상 선택입니다.
 - **Permission**: User와 Connection 사이의 접근 수준 — `없음`(안 보임) / `읽기`(SELECT만) / `쓰기`(모든 SQL 실행 가능).
 - **Audit Log**: Write Query(조회성이 아닌 모든 구문) 시도를 기록하는 로그. 거부된 시도도 포함하며, 조회(SELECT)는 기록하지 않습니다.
 
@@ -150,9 +151,17 @@ cd client
 npm run dev
 ```
 
+## 주요 기능
+
+- **쿼리 실행 화면 SQL 자동완성**: 키워드, 테이블명, `별칭.컬럼` 자동완성을 모두 지원합니다. 테이블을 자동완성으로 선택하면 `테이블명 별칭` 형태로 자동 삽입되고(예: `employees e`), 그 별칭으로 컬럼 자동완성도 바로 됩니다. Tab으로 자동완성 확정, Ctrl/Cmd+Enter로 커서가 속한 문장(또는 선택 영역)만 실행합니다.
+- **포맷팅 / 문장 완성**: JetBrains DataGrip과 동일한 단축키 — `Ctrl/Cmd+Alt+L`로 포맷팅, `Ctrl/Cmd+Shift+Enter`로 현재 문장 끝에 세미콜론 자동 추가.
+- **Catalog 선택**: MySQL/Postgres/MSSQL은 하나의 Connection 안에 여러 데이터베이스가 있을 수 있어, 쿼리 실행 화면에서 어느 데이터베이스에 붙을지 드롭다운으로 고를 수 있습니다(`?catalog=` URL 파라미터로 유지). Oracle은 Connection의 서비스명이 이미 대상을 고정하므로 이 드롭다운이 뜨지 않습니다.
+- **Connection 수정**: 등록 후 오타를 발견해도 삭제 없이 바로 고칠 수 있습니다(그 Connection에 걸린 Permission이 그대로 유지됩니다). 비밀번호 입력란을 비워두면 기존 비밀번호가 유지됩니다.
+- **권한 현황 조회**: Permissions 화면에서 현재 누가 어떤 Connection에 어떤 권한을 가졌는지 목록으로 보고, 바로 회수할 수 있습니다.
+
 ## 지원 DB
 
-MSSQL, MySQL, PostgreSQL, Oracle. 각 Connection은 개별 DB 서버 인스턴스 단위로 등록하며, 그 안의 특정 데이터베이스(카탈로그)나 테이블 단위 권한 세분화는 아직 지원하지 않습니다.
+MSSQL, MySQL, PostgreSQL, Oracle. 각 Connection은 개별 DB 서버 인스턴스 단위로 등록합니다. MySQL/Postgres/MSSQL은 쿼리 실행 화면에서 Catalog(개별 데이터베이스)를 선택할 수 있고, Oracle은 Connection 등록 시 입력한 서비스명/SID로 대상이 고정됩니다. 테이블 단위 권한 세분화는 아직 지원하지 않습니다.
 
 ## 보안 관련 주의사항
 
