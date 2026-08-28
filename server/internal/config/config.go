@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 )
 
@@ -13,11 +14,21 @@ type Config struct {
 	BootstrapAdminPassword string
 }
 
-// Load reads the server configuration from the environment. DBTOOL_JWT_SECRET
-// has no fallback — a shared default would let anyone forge a valid session
-// token against any self-hosted instance still running it — so its absence
-// is a fatal error rather than a silently insecure default.
+// Load reads the server configuration from the environment, first loading
+// a .env file (path from DBTOOL_ENV_FILE, default ".env" in the working
+// directory) if one is present — see loadDotEnv. DBTOOL_JWT_SECRET has no
+// fallback — a shared default would let anyone forge a valid session token
+// against any self-hosted instance still running it — so its absence is a
+// fatal error rather than a silently insecure default.
 func Load() (Config, error) {
+	envFile := os.Getenv("DBTOOL_ENV_FILE")
+	if envFile == "" {
+		envFile = ".env"
+	}
+	if err := loadDotEnv(envFile); err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", envFile, err)
+	}
+
 	secret := os.Getenv("DBTOOL_JWT_SECRET")
 	if secret == "" {
 		return Config{}, errors.New("DBTOOL_JWT_SECRET environment variable must be set")

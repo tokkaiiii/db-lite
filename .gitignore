@@ -21,3 +21,6 @@ client/dev.log
 # .gitkeep만 커밋해서 client 빌드 없이도 `go build`가 되도록 유지한다.
 server/internal/httpapi/dist/*
 !server/internal/httpapi/dist/.gitkeep
+
+# 실제 비밀값이 담긴 .env — 커밋은 server/.env.example만
+.env

@@ -70,6 +70,7 @@ go build -o dbtool.exe ./cmd/server
 | `DBTOOL_LISTEN_ADDR` | 아니오 | `:8080` | 서버가 바인딩할 주소 |
 | `DBTOOL_SQLITE_PATH` | 아니오 | `dbtool.sqlite` | 앱 메타데이터(User/Connection/Permission/Audit Log)를 저장할 SQLite 파일 경로 |
 | `DBTOOL_BOOTSTRAP_ADMIN_USER` / `DBTOOL_BOOTSTRAP_ADMIN_PASSWORD` | 아니오 | 없음 | 최초 실행 시(User가 0명일 때만) 이 계정으로 첫 Admin을 자동 생성 |
+| `DBTOOL_ENV_FILE` | 아니오 | `.env` | 아래 `.env` 파일을 읽어올 경로 |
 
 macOS/Linux (bash/zsh):
 
@@ -88,6 +89,30 @@ $env:DBTOOL_BOOTSTRAP_ADMIN_USER="admin"
 $env:DBTOOL_BOOTSTRAP_ADMIN_PASSWORD="바꾸세요"
 ./dbtool.exe
 ```
+
+Windows (cmd):
+
+```cmd
+set DBTOOL_JWT_SECRET=충분히-무작위한-값으로-바꾸세요
+set DBTOOL_BOOTSTRAP_ADMIN_USER=admin
+set DBTOOL_BOOTSTRAP_ADMIN_PASSWORD=바꾸세요
+dbtool.exe
+```
+
+셸마다 문법이 달라 번거롭다면, 환경변수 대신 **`.env` 파일**을 쓸 수 있습니다. `dbtool`(또는 `dbtool.exe`)과 같은 디렉터리에 `.env` 파일을 두면 실행 시 자동으로 읽습니다(`server/.env.example` 참고). 이미 설정된 실제 환경변수가 있으면 그 값이 항상 우선합니다.
+
+```
+# .env
+DBTOOL_JWT_SECRET=충분히-무작위한-값으로-바꾸세요
+DBTOOL_BOOTSTRAP_ADMIN_USER=admin
+DBTOOL_BOOTSTRAP_ADMIN_PASSWORD=바꾸세요
+```
+
+```bash
+./dbtool   # 셸 상관없이 .env를 읽어 그대로 실행
+```
+
+`.env`에는 비밀번호가 평문으로 남으므로, 파일 접근 권한을 제한하고 절대 커밋하지 마세요(`.gitignore`에 이미 `.env`가 등록되어 있습니다).
 
 실행 후 `http://<서버주소>:8080`으로 접속해 방금 만든 관리자 계정으로 로그인하면, Connection 등록과 User별 Permission 부여를 시작할 수 있습니다.
 
