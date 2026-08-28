@@ -1,11 +1,34 @@
 package query
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+	"unicode/utf8"
+)
 
 // DefaultRowLimit caps how many rows a read (SELECT-class) statement
 // returns, per the "server-side 기본 LIMIT" decision — protecting against
 // accidentally pulling millions of rows into memory.
 const DefaultRowLimit = 1000
+
+// maxCellBytes caps how many bytes of a single cell's string
+// representation are sent to the client, per ADR 0007 — BLOB/XML columns
+// otherwise blow up response size and grid rendering time.
+const maxCellBytes = 2000
+
+// truncateCell shortens s to maxCellBytes (on a valid UTF-8 boundary) and
+// appends a marker noting the original size, per ADR 0007. Values at or
+// under the limit are returned unchanged.
+func truncateCell(s string) string {
+	if len(s) <= maxCellBytes {
+		return s
+	}
+	cut := s[:maxCellBytes]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return fmt.Sprintf("%s...(잘림, 원본 %d바이트)", cut, len(s))
+}
 
 // Result is what a single query execution produces, in a shape a REST
 // handler can serialize directly.
@@ -66,11 +89,16 @@ func executeRead(db *sql.DB, stmt string) (*Result, error) {
 			return nil, err
 		}
 		for i, v := range raw {
-			// Drivers (notably MySQL) return string-typed columns as
-			// []byte; left as-is, encoding/json base64-encodes them
-			// instead of emitting readable text.
-			if b, ok := v.([]byte); ok {
-				raw[i] = string(b)
+			switch val := v.(type) {
+			case []byte:
+				// Drivers (notably MySQL) return string-typed columns as
+				// []byte; left as-is, encoding/json base64-encodes them
+				// instead of emitting readable text.
+				raw[i] = truncateCell(string(val))
+			case string:
+				// Other drivers (e.g. Postgres for TEXT/XML) hand back a
+				// native string directly, so it needs the same cap.
+				raw[i] = truncateCell(val)
 			}
 		}
 		result.Rows = append(result.Rows, raw)

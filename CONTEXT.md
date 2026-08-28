@@ -31,3 +31,11 @@ _Avoid_: 쓰기 쿼리, 변경 쿼리, DML
 **Audit Log Entry**:
 Write Query가 실행 시도된 사실을 기록한 영속 로그 한 건. 실제로 성공한 실행뿐 아니라, Permission이 `읽기`뿐인 User가 Write Query를 시도했다가 거부된 경우도 포함한다. 조회(SELECT) 실행은 기록하지 않는다.
 _Avoid_: 로그, 실행이력, 감사기록
+
+**Row Truncation**:
+조회 결과가 `DefaultRowLimit`(1000행)을 넘겨서, 그 이후 행을 아예 내려보내지 않고 잘라낸 상태. `Result.Truncated` 필드로 나타낸다.
+_Avoid_: 결과 잘림, 잘린 결과
+
+**Cell Truncation**:
+개별 셀 값(주로 BLOB/XML처럼 큰 컬럼)이 2,000바이트를 넘겨서, 값 자체를 잘라 문자열 끝에 `...(잘림, 원본 N바이트)` 마커를 붙인 상태. Row Truncation과 달리 행 자체는 내려가고, 그 행의 특정 셀 값만 축약된다. ([ADR 0007](docs/adr/0007-cell-value-truncation.md))
+_Avoid_: 값 잘림, 텍스트 잘림
