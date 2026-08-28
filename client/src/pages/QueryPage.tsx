@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
-import { keymap } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import { Prec, type EditorState } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
-import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect } from '@codemirror/lang-sql'
+import { acceptCompletion, type Completion } from '@codemirror/autocomplete'
+import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect, type SQLNamespace } from '@codemirror/lang-sql'
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
 import { ApiError } from '../api/client'
@@ -15,6 +16,50 @@ const DIALECTS: Record<DBKind, SQLDialect> = {
   postgres: PostgreSQL,
   mssql: MSSQL,
   oracle: PLSQL,
+}
+
+// Picks a short alias for table — initials of each `_`-separated word
+// (order_items -> oi), or its first letter for a single-word name — then
+// disambiguates against whatever's already in the document (by simple
+// substring-of-a-word search) so completing a second table whose name
+// starts the same way doesn't silently collide with the first one's alias.
+function generateAlias(table: string, docText: string): string {
+  const initials = table
+    .split(/[_\s]+/)
+    .map((part) => part[0]?.toLowerCase())
+    .filter(Boolean)
+    .join('')
+  const base = initials || table[0]?.toLowerCase() || 't'
+  const isTaken = (candidate: string) => new RegExp(`\\b${candidate}\\b`, 'i').test(docText)
+  let candidate = base
+  for (let n = 2; isTaken(candidate); n++) candidate = base + n
+  return candidate
+}
+
+// Wraps each table's column list in a { self, children } SQLNamespace entry
+// so selecting the table from autocomplete inserts "table alias" instead of
+// just "table" — the alias-aware `alias.column` completion lang-sql already
+// does (see CONTEXT.md's Catalog entry / dbtool#autocomplete work) then
+// resolves it normally, since it re-parses "FROM table alias" from the
+// document text rather than caring how it got typed.
+function schemaWithAliasCompletion(schema: Record<string, string[]>): SQLNamespace {
+  const namespace: SQLNamespace = {}
+  for (const [table, columns] of Object.entries(schema)) {
+    const self: Completion = {
+      label: table,
+      type: 'type',
+      apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
+        const alias = generateAlias(table, view.state.doc.toString())
+        const insert = `${table} ${alias}`
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + insert.length },
+        })
+      },
+    }
+    namespace[table] = { self, children: columns }
+  }
+  return namespace
 }
 
 // Finds the statement surrounding cursorPos using lang-sql's own parser
@@ -126,11 +171,16 @@ export function QueryPage() {
   const runRef = useRef(run)
   runRef.current = run
 
+  const cmSchema = useMemo(() => schemaWithAliasCompletion(schema), [schema])
+
   const extensions = useMemo(
     () => [
-      sql({ dialect: kind ? DIALECTS[kind] : undefined, schema, upperCaseKeywords: true }),
-      // Prec.highest so this wins over CodeMirror's own Enter-inserts-a-
-      // newline binding, which otherwise fires first for Ctrl/Cmd+Enter too.
+      sql({ dialect: kind ? DIALECTS[kind] : undefined, schema: cmSchema, upperCaseKeywords: true }),
+      // Prec.highest so these win over CodeMirror's own bindings for the
+      // same keys — Enter-inserts-a-newline (which otherwise fires first
+      // for Ctrl/Cmd+Enter too) and Tab-indents. acceptCompletion() itself
+      // returns false when no completion popup is open, so Tab still falls
+      // through to the default indent behavior the rest of the time.
       Prec.highest(
         keymap.of([
           {
@@ -140,10 +190,11 @@ export function QueryPage() {
               return true
             },
           },
+          { key: 'Tab', run: acceptCompletion },
         ]),
       ),
     ],
-    [kind, schema],
+    [kind, cmSchema],
   )
 
   return (
