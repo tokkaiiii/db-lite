@@ -13,3 +13,11 @@ client/dev.log
 
 # Playwright MCP 실행 아티팩트
 .playwright-mcp/
+
+# client build output
+/client/dist/
+
+# 셀프호스팅 빌드 시 client/dist를 복사해 넣는 위치 (go:embed 대상).
+# .gitkeep만 커밋해서 client 빌드 없이도 `go build`가 되도록 유지한다.
+server/internal/httpapi/dist/*
+!server/internal/httpapi/dist/.gitkeep

@@ -55,5 +55,7 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
+	r.NotFound(spaHandler(staticFS()))
+
 	return r
 }
