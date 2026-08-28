@@ -39,3 +39,7 @@ _Avoid_: 결과 잘림, 잘린 결과
 **Cell Truncation**:
 개별 셀 값(주로 BLOB/XML처럼 큰 컬럼)이 2,000바이트를 넘겨서, 값 자체를 잘라 문자열 끝에 `...(잘림, 원본 N바이트)` 마커를 붙인 상태. Row Truncation과 달리 행 자체는 내려가고, 그 행의 특정 셀 값만 축약된다. ([ADR 0007](docs/adr/0007-cell-value-truncation.md))
 _Avoid_: 값 잘림, 텍스트 잘림
+
+**Cell Value Download**:
+PK가 있는 단일 테이블 `SELECT *` 결과에서, 그 행의 PK 값으로 해당 컬럼만 다시 조회해 잘리지 않은 원본 값을 파일로 내려받는 기능. Cell Truncation으로 그리드에 표시된 축약 값과 달리, 항상 DB의 실제 원본 바이트를 그대로 준다. PK가 없거나 JOIN/서브쿼리처럼 행을 유일하게 식별할 수 없는 결과에는 제공되지 않는다. ([ADR 0009](docs/adr/0009-cell-value-download.md))
+_Avoid_: 전체 값 보기, 원본 다운로드

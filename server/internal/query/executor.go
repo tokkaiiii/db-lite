@@ -39,6 +39,14 @@ type Result struct {
 	Rows         [][]any  `json:"rows,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
 	RowsAffected int64    `json:"rowsAffected,omitempty"`
+	// Table and PrimaryKey are set only when stmt matched the same narrow
+	// `SELECT * FROM <table>` shape ADR 0008 rewrites, and that table has
+	// a primary key — the two facts ADR 0009's cell-value download needs
+	// to safely re-fetch one row's untruncated value. Left empty
+	// otherwise (e.g. JOINs, tables without a primary key): the client
+	// treats that as "download isn't available for this result".
+	Table      string   `json:"table,omitempty"`
+	PrimaryKey []string `json:"primaryKey,omitempty"`
 }
 
 // Execute runs stmt against db (open for kind). Read statements are capped
@@ -67,7 +75,9 @@ func executeWrite(db *sql.DB, stmt string) (*Result, error) {
 }
 
 func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
-	rows, err := db.Query(rewriteSelectStarLOB(db, kind, stmt))
+	rewritten, table, primaryKey := prepareSelectStar(db, kind, stmt)
+
+	rows, err := db.Query(rewritten)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +88,7 @@ func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
 		return nil, err
 	}
 
-	result := &Result{Columns: cols, Rows: [][]any{}}
+	result := &Result{Columns: cols, Rows: [][]any{}, Table: table, PrimaryKey: primaryKey}
 	for rows.Next() {
 		if len(result.Rows) >= DefaultRowLimit {
 			result.Truncated = true

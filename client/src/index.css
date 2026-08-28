@@ -70,6 +70,19 @@ th {
   color: #b8860b;
 }
 
+.cell-download {
+  margin-left: 0.4rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.4;
+  font-size: 0.85rem;
+}
+
+.cell-download:hover {
+  opacity: 1;
+}
+
 .login-page {
   display: flex;
   justify-content: center;

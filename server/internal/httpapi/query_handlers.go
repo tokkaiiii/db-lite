@@ -1,8 +1,12 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -74,6 +78,99 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+type fetchCellRequest struct {
+	Catalog    string         `json:"catalog"`
+	Table      string         `json:"table"`
+	Column     string         `json:"column"`
+	PrimaryKey map[string]any `json:"primaryKey"`
+}
+
+// handleFetchCell re-fetches one column's untruncated value for one row
+// and returns it as a raw file download (ADR 0009). It's read-only (a
+// SELECT under the hood), so — like handleExecuteQuery's read path — it
+// only requires read Permission and isn't written to the Audit Log.
+func (s *Server) handleFetchCell(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFrom(r.Context())
+
+	connectionID, err := strconv.ParseInt(chi.URLParam(r, "connectionID"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection id")
+		return
+	}
+
+	var req fetchCellRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Table == "" || req.Column == "" || len(req.PrimaryKey) == 0 {
+		writeError(w, http.StatusBadRequest, "table, column, and primaryKey are required")
+		return
+	}
+
+	if _, ok := s.requireConnectionAccess(w, claims.UserID, connectionID); !ok {
+		return
+	}
+
+	conn, err := s.store.GetConnection(connectionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "connection not found")
+		return
+	}
+
+	db, err := dbconn.Open(*conn, req.Catalog)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to open target connection")
+		return
+	}
+	defer db.Close()
+
+	value, err := dbconn.FetchCellValue(db, conn.Kind, req.Table, req.Column, req.PrimaryKey)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	file := query.NewCellFile(value)
+	filename := fmt.Sprintf("%s_%s_%s%s", req.Table, req.Column, primaryKeySuffix(req.PrimaryKey), file.Extension)
+	w.Header().Set("Content-Type", file.ContentType)
+	w.Header().Set("Content-Disposition", contentDisposition(filename))
+	w.Write(file.Data)
+}
+
+// contentDisposition builds an attachment header for filename, which may
+// contain non-ASCII characters (table/column names in this Korean-language
+// tool commonly do). HTTP headers are ASCII-only, so it sends both an
+// ASCII fallback (non-ASCII bytes replaced with "_") and the RFC 6266
+// filename* form every modern browser prefers when present.
+func contentDisposition(filename string) string {
+	ascii := strings.Map(func(r rune) rune {
+		if r > 127 {
+			return '_'
+		}
+		return r
+	}, filename)
+	return fmt.Sprintf(`attachment; filename=%q; filename*=UTF-8''%s`, ascii, url.PathEscape(filename))
+}
+
+// primaryKeySuffix renders a primary key value map into a filesystem-safe
+// filename fragment, e.g. {"id": 42} -> "42" or {"a": 1, "b": 2} ->
+// "1_2" (sorted by column name for determinism — map iteration order
+// isn't).
+func primaryKeySuffix(pk map[string]any) string {
+	keys := make([]string, 0, len(pk))
+	for k := range pk {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%v", pk[k])
+	}
+	return strings.Join(parts, "_")
 }
 
 // requireConnectionAccess checks that userID has at least read Permission on

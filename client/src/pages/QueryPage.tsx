@@ -294,25 +294,63 @@ export function QueryPage() {
         </button>
       </div>
       {error && <p className="error">{error}</p>}
-      {result && <QueryResultView result={result} />}
+      {result && (
+        <QueryResultView
+          result={result}
+          connectionId={connectionId ? Number(connectionId) : undefined}
+          catalog={catalog}
+        />
+      )}
     </div>
   )
 }
 
-function QueryResultView({ result }: { result: QueryResult }) {
+// canDownloadCell mirrors the ADR 0009 gate: the server only fills in
+// Table/PrimaryKey when the statement was a plain `SELECT * FROM <table>`
+// on a table that has a primary key.
+function canDownloadCell(connectionId: number | undefined, result: QueryResult): boolean {
+  return connectionId !== undefined && !!result.table && !!result.primaryKey?.length
+}
+
+function QueryResultView({
+  result,
+  connectionId,
+  catalog,
+}: {
+  result: QueryResult
+  connectionId?: number
+  catalog: string
+}) {
   if (result.rowsAffected !== undefined && !result.columns) {
     return <p>{result.rowsAffected}행이 영향을 받았습니다.</p>
   }
   if (!result.columns || !result.rows) {
     return <p>결과가 없습니다.</p>
   }
+
+  const columns = result.columns
+  const downloadEnabled = canDownloadCell(connectionId, result)
+  const pkIndexes = downloadEnabled ? result.primaryKey!.map((pk) => columns.indexOf(pk)) : []
+
+  async function downloadCell(row: unknown[], column: string) {
+    const primaryKey: Record<string, unknown> = {}
+    result.primaryKey!.forEach((pk, i) => {
+      primaryKey[pk] = row[pkIndexes[i]]
+    })
+    try {
+      await api.downloadCellFile(connectionId!, { catalog, table: result.table!, column, primaryKey })
+    } catch (e) {
+      alert(e instanceof ApiError ? e.message : '다운로드에 실패했습니다.')
+    }
+  }
+
   return (
     <div>
       {result.truncated && <p className="warning">결과가 최대 행 수로 잘렸습니다.</p>}
       <table>
         <thead>
           <tr>
-            {result.columns.map((c) => (
+            {columns.map((c) => (
               <th key={c}>{c}</th>
             ))}
           </tr>
@@ -321,7 +359,19 @@ function QueryResultView({ result }: { result: QueryResult }) {
           {result.rows.map((row, i) => (
             <tr key={i}>
               {row.map((cell, j) => (
-                <td key={j}>{cell === null ? 'NULL' : String(cell)}</td>
+                <td key={j}>
+                  {cell === null ? 'NULL' : String(cell)}
+                  {downloadEnabled && (
+                    <button
+                      type="button"
+                      className="cell-download"
+                      title="원본 값 다운로드"
+                      onClick={() => downloadCell(row, columns[j])}
+                    >
+                      ⬇
+                    </button>
+                  )}
+                </td>
               ))}
             </tr>
           ))}

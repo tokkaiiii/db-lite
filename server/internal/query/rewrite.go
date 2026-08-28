@@ -93,39 +93,50 @@ func bareTableName(raw string) string {
 	return strings.Trim(last, `[]"`+"`")
 }
 
-// rewriteSelectStarLOB rewrites stmt to pre-truncate LOB-class columns on
-// the DB server itself (ADR 0008), when stmt is a plain `SELECT * FROM
-// <table>` and that table has at least one such column. Any failure to
-// parse, look up, or find anything worth rewriting returns stmt unchanged
-// — this is an optional optimization, never a correctness requirement, so
-// it always fails open rather than surfacing an error to the caller.
-func rewriteSelectStarLOB(db *sql.DB, kind store.DBKind, stmt string) string {
+// prepareSelectStar inspects stmt once for the narrow `SELECT * FROM
+// <table>` shape both ADR 0008 and ADR 0009 depend on, and returns:
+//
+//   - rewritten: stmt, pre-truncating any LOB-class column on the DB
+//     server itself (ADR 0008) when the shape matched and the table has
+//     one; stmt unchanged otherwise.
+//   - table, primaryKey: the bare table name and its primary key columns
+//     (ADR 0009), set only when the shape matched AND the table has a
+//     primary key; zero values otherwise.
+//
+// Both lookups fail open: a parse failure, a lookup error, or nothing
+// worth acting on all just fall back to "not available" rather than
+// surfacing an error — these are optional capabilities layered on top of
+// running the statement, never a correctness requirement.
+func prepareSelectStar(db *sql.DB, kind store.DBKind, stmt string) (rewritten, table string, primaryKey []string) {
+	rewritten = stmt
+
 	parsed, ok := parseSelectStarSingleTable(stmt)
 	if !ok {
-		return stmt
+		return rewritten, "", nil
 	}
-	table := bareTableName(parsed.Table)
-	if table == "" {
-		return stmt
-	}
-
-	columns, err := dbconn.LOBColumns(db, kind, table)
-	if err != nil || len(columns) == 0 {
-		return stmt
+	bare := bareTableName(parsed.Table)
+	if bare == "" {
+		return rewritten, "", nil
 	}
 
-	hasLOB := false
-	for _, c := range columns {
-		if c.IsLOB {
-			hasLOB = true
-			break
+	if columns, err := dbconn.LOBColumns(db, kind, bare); err == nil {
+		hasLOB := false
+		for _, c := range columns {
+			if c.IsLOB {
+				hasLOB = true
+				break
+			}
+		}
+		if hasLOB {
+			rewritten = buildRewrittenSelect(parsed, columns)
 		}
 	}
-	if !hasLOB {
-		return stmt
+
+	if pk, err := dbconn.PrimaryKeyColumns(db, kind, bare); err == nil && len(pk) > 0 {
+		table, primaryKey = bare, pk
 	}
 
-	return buildRewrittenSelect(parsed, columns)
+	return rewritten, table, primaryKey
 }
 
 func buildRewrittenSelect(p ParsedSelectStar, columns []dbconn.LOBColumn) string {

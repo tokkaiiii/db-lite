@@ -67,6 +67,54 @@ export function executeQuery(connectionId: number, statement: string, catalog: s
   })
 }
 
+// downloadCellFile re-fetches one cell's untruncated original value (ADR
+// 0009) and saves it as a file. A plain <a href> download can't carry the
+// Authorization header this app authenticates with, so it fetches the
+// file as a Blob and triggers the save via a synthetic, hidden <a
+// download> click instead of exposing the JWT in a URL.
+export async function downloadCellFile(
+  connectionId: number,
+  params: { catalog: string; table: string; column: string; primaryKey: Record<string, unknown> },
+) {
+  const token = getToken()
+  const headers = new Headers()
+  headers.set('Content-Type', 'application/json')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`/api/connections/${connectionId}/cell`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(res.status, body.error ?? res.statusText)
+  }
+
+  const blob = await res.blob()
+  const filename = filenameFromContentDisposition(res.headers.get('Content-Disposition')) ?? 'download'
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  // Prefer the RFC 5987 filename* form — the plain filename= fallback
+  // has non-ASCII characters replaced with "_" (see contentDisposition
+  // in query_handlers.go), so it's the star form that has the real name.
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (star) return decodeURIComponent(star[1])
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain ? plain[1] : null
+}
+
 export function listCatalogs(connectionId: number) {
   return request<{ catalogs: string[] }>(`/api/connections/${connectionId}/catalogs`)
 }

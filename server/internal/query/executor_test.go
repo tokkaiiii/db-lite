@@ -122,6 +122,25 @@ func TestExecuteRead_SelectStar_FailsOpenOnLookupError(t *testing.T) {
 	}
 }
 
+// TestExecuteRead_SelectStar_NoPrimaryKeyLookupLeavesMetadataEmpty documents
+// the ADR 0009 fail-open behavior: testKind has no primary-key lookup query
+// wired up for this SQLite-backed test, so Result.Table/PrimaryKey must
+// stay empty rather than erroring the whole query.
+func TestExecuteRead_SelectStar_NoPrimaryKeyLookupLeavesMetadataEmpty(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	result, err := Execute(db, testKind, "SELECT * FROM t")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Table != "" || result.PrimaryKey != nil {
+		t.Errorf("Table = %q, PrimaryKey = %v, want both empty", result.Table, result.PrimaryKey)
+	}
+}
+
 func TestExecuteRead_LeavesSmallCellUntouched(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER, name TEXT)"); err != nil {

@@ -44,4 +44,9 @@ export interface QueryResult {
   rows?: unknown[][]
   truncated?: boolean
   rowsAffected?: number
+  // Set only when the statement was a plain `SELECT * FROM <table>` on a
+  // table with a primary key — see ADR 0009. Their presence is what
+  // enables the per-cell "원본 다운로드" button.
+  table?: string
+  primaryKey?: string[]
 }
