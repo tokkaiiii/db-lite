@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { keymap } from '@codemirror/view'
-import { Prec } from '@codemirror/state'
+import { Prec, type EditorState } from '@codemirror/state'
+import { syntaxTree } from '@codemirror/language'
 import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect } from '@codemirror/lang-sql'
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
@@ -16,19 +17,16 @@ const DIALECTS: Record<DBKind, SQLDialect> = {
   oracle: PLSQL,
 }
 
-// Finds the ';'-delimited statement surrounding cursorPos in text — the
-// last ';' at or before it starts the statement, the next ';' at or after
-// it ends it. This is a plain substring scan, not a real SQL tokenizer, so
-// a ';' inside a string literal would incorrectly split a statement; good
-// enough for now, revisit if that turns out to matter in practice.
-function statementAtCursor(text: string, cursorPos: number): string {
-  let start = 0
-  for (let i = 0; i < cursorPos; i++) {
-    if (text[i] === ';') start = i + 1
-  }
-  const semiAfter = text.indexOf(';', cursorPos)
-  const end = semiAfter === -1 ? text.length : semiAfter
-  return text.slice(start, end).trim()
+// Finds the statement surrounding cursorPos using lang-sql's own parser
+// (its grammar tokenizes String/LineComment/BlockComment separately from
+// the ';' that ends a Statement node), rather than a plain ';' scan — so a
+// ';' inside a string literal or a comment no longer incorrectly splits a
+// statement.
+function statementAtCursor(state: EditorState, cursorPos: number): string {
+  let node = syntaxTree(state).resolveInner(cursorPos, -1)
+  while (node && node.name !== 'Statement' && node.parent) node = node.parent
+  if (!node || node.name !== 'Statement') return state.doc.toString().trim()
+  return state.sliceDoc(node.from, node.to).trim()
 }
 
 export function QueryPage() {
@@ -103,7 +101,7 @@ export function QueryPage() {
     if (!view) return statement
     const sel = view.state.selection.main
     if (!sel.empty) return view.state.sliceDoc(sel.from, sel.to).trim()
-    return statementAtCursor(view.state.doc.toString(), sel.head)
+    return statementAtCursor(view.state, sel.head)
   }
 
   async function run() {
