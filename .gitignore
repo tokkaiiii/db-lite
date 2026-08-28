@@ -1,0 +1,7 @@
+# 참고용으로 클론해둔 외부 저장소 (이 프로젝트에는 포함하지 않음)
+/cloudbeaver/
+/dbeaver/
+/dbeaver-common/
+
+# IDE 설정
+.idea/
