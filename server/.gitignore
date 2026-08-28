@@ -2,3 +2,5 @@
 *.sqlite-journal
 /server
 /server.exe
+/dbtool
+/dbtool.exe

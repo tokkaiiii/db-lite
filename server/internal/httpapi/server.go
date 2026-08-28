@@ -38,6 +38,7 @@ func (s *Server) Router() http.Handler {
 
 		r.Get("/api/connections", s.handleListConnections)
 		r.Get("/api/connections/{connectionID}/catalogs", s.handleListCatalogs)
+		r.Get("/api/connections/{connectionID}/schema", s.handleDescribeSchema)
 		r.Post("/api/connections/{connectionID}/query", s.handleExecuteQuery)
 
 		r.Group(func(r chi.Router) {

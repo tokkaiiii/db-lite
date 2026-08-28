@@ -138,6 +138,45 @@ func (s *Server) handleListCatalogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{"catalogs": catalogs})
 }
 
+// handleDescribeSchema returns every table's columns in the target
+// Connection's default schema within catalog (Oracle ignores catalog and
+// returns the connecting user's own tables), for the client to feed into
+// its SQL editor's autocomplete.
+func (s *Server) handleDescribeSchema(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFrom(r.Context())
+
+	connectionID, err := strconv.ParseInt(chi.URLParam(r, "connectionID"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection id")
+		return
+	}
+
+	if _, ok := s.requireConnectionAccess(w, claims.UserID, connectionID); !ok {
+		return
+	}
+
+	conn, err := s.store.GetConnection(connectionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "connection not found")
+		return
+	}
+
+	db, err := dbconn.Open(*conn, r.URL.Query().Get("catalog"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to open target connection")
+		return
+	}
+	defer db.Close()
+
+	schema, err := dbconn.DescribeSchema(db, conn.Kind)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]map[string][]string{"schema": schema})
+}
+
 func (s *Server) recordAudit(userID, connectionID int64, statement string, allowed bool, errMsg string) {
 	// Best-effort: a logging failure must not block the query response.
 	_ = s.store.InsertAuditLogEntry(store.AuditLogEntry{

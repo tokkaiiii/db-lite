@@ -70,6 +70,11 @@ export function listCatalogs(connectionId: number) {
   return request<{ catalogs: string[] }>(`/api/connections/${connectionId}/catalogs`)
 }
 
+export function describeSchema(connectionId: number, catalog: string) {
+  const qs = catalog ? `?catalog=${encodeURIComponent(catalog)}` : ''
+  return request<{ schema: Record<string, string[]> }>(`/api/connections/${connectionId}/schema${qs}`)
+}
+
 export function adminListUsers() {
   return request<User[]>('/api/admin/users')
 }
