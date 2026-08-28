@@ -14,27 +14,45 @@ import (
 	"dbtool/server/internal/store"
 )
 
-// Open returns a *sql.DB for the given Connection. Callers are expected to
-// pool/reuse or close it — this does not cache connections itself.
-func Open(c store.Connection) (*sql.DB, error) {
-	driver, dsn, err := driverAndDSN(c)
+// postgresDefaultCatalog is the maintenance database PostgreSQL always
+// provisions — used when no Catalog has been selected yet (e.g. while
+// listing Catalogs, or for a caller that predates Catalog selection).
+// Unlike MySQL/MSSQL, Postgres has no "no database" connection mode: every
+// connection targets exactly one database from the start.
+const postgresDefaultCatalog = "postgres"
+
+// Open returns a *sql.DB for the given Connection, connected to catalog —
+// the individual database/schema within that Connection's server instance
+// the caller wants to run statements against (see the Catalog glossary
+// entry in CONTEXT.md). Pass "" to connect without picking one, which only
+// MySQL and MSSQL support; Oracle ignores catalog entirely, since its
+// service name already fixes the target PDB. Callers are expected to
+// pool/reuse or close the result — this does not cache connections itself.
+func Open(c store.Connection, catalog string) (*sql.DB, error) {
+	driver, dsn, err := driverAndDSN(c, catalog)
 	if err != nil {
 		return nil, err
 	}
 	return sql.Open(driver, dsn)
 }
 
-func driverAndDSN(c store.Connection) (driver, dsn string, err error) {
+func driverAndDSN(c store.Connection, catalog string) (driver, dsn string, err error) {
 	switch c.Kind {
 	case store.DBKindMSSQL:
-		return "sqlserver", fmt.Sprintf("sqlserver://%s:%s@%s:%d",
-			c.Username, c.Password, c.Host, c.Port), nil
+		dsn = fmt.Sprintf("sqlserver://%s:%s@%s:%d", c.Username, c.Password, c.Host, c.Port)
+		if catalog != "" {
+			dsn += "?database=" + catalog
+		}
+		return "sqlserver", dsn, nil
 	case store.DBKindMySQL:
-		return "mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/",
-			c.Username, c.Password, c.Host, c.Port), nil
+		return "mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
+			c.Username, c.Password, c.Host, c.Port, catalog), nil
 	case store.DBKindPostgres:
-		return "pgx", fmt.Sprintf("postgres://%s:%s@%s:%d/postgres",
-			c.Username, c.Password, c.Host, c.Port), nil
+		if catalog == "" {
+			catalog = postgresDefaultCatalog
+		}
+		return "pgx", fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+			c.Username, c.Password, c.Host, c.Port, catalog), nil
 	case store.DBKindOracle:
 		if c.ServiceName == "" {
 			return "", "", fmt.Errorf("oracle connection %q has no service name/SID configured", c.Name)

@@ -59,11 +59,15 @@ export function listConnections() {
   return request<ConnectionWithLevel[]>('/api/connections')
 }
 
-export function executeQuery(connectionId: number, statement: string) {
+export function executeQuery(connectionId: number, statement: string, catalog: string) {
   return request<QueryResult>(`/api/connections/${connectionId}/query`, {
     method: 'POST',
-    body: JSON.stringify({ statement }),
+    body: JSON.stringify({ statement, catalog }),
   })
+}
+
+export function listCatalogs(connectionId: number) {
+  return request<{ catalogs: string[] }>(`/api/connections/${connectionId}/catalogs`)
 }
 
 export function adminListUsers() {

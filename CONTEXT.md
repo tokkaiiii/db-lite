@@ -13,8 +13,12 @@ Connection을 등록/삭제하고, User에게 Permission을 부여/회수할 수
 _Avoid_: 관리자, 운영자
 
 **Connection**:
-하나의 DB 서버 인스턴스(호스트+포트+DB 종류+공유 계정)를 가리키는 등록 단위. 권한 부여의 최소 단위이며, 그 서버 안의 개별 데이터베이스(카탈로그)나 테이블 단위로는 세분화하지 않는다. 사용자가 Connection에 접속한 뒤 어떤 데이터베이스(카탈로그)를 조회할지 고르는 것은 Permission과 무관한 화면상의 선택일 뿐이다.
+하나의 DB 서버 인스턴스(호스트+포트+DB 종류+공유 계정)를 가리키는 등록 단위. 권한 부여의 최소 단위이며, 그 서버 안의 개별 Catalog나 테이블 단위로는 세분화하지 않는다.
 _Avoid_: DB, 연결정보, 데이터소스
+
+**Catalog**:
+Connection 하나가 가리키는 DB 서버 인스턴스 안에 있는, 사용자가 화면에서 고르는 개별 데이터베이스(MySQL/Postgres의 `database`, Oracle의 서비스명이 가리키는 PDB 등). Permission은 Connection 단위로만 존재하므로 Catalog 선택은 Permission과 무관한 순수 화면 상태이며, 어떤 Catalog를 고르든 그 User의 Connection Permission이 그대로 적용된다.
+_Avoid_: 데이터베이스, 스키마, DB
 
 **Permission**:
 User와 Connection 사이에 존재하는, 세 등급(`없음`/`읽기`/`쓰기`) 중 하나로 정의되는 접근 수준. `없음`은 해당 Connection이 그 User에게 아예 보이지 않음을, `읽기`는 SELECT만, `쓰기`는 SELECT를 포함한 모든 SQL 실행 가능을 의미한다.
