@@ -6,6 +6,7 @@ import { Prec, type EditorState } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import { acceptCompletion, type Completion } from '@codemirror/autocomplete'
 import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect, type SQLNamespace } from '@codemirror/lang-sql'
+import { formatDialect, mysql as sqlFormatterMysql, plsql, postgresql, transactsql } from 'sql-formatter'
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
 import { ApiError } from '../api/client'
@@ -16,6 +17,13 @@ const DIALECTS: Record<DBKind, SQLDialect> = {
   postgres: PostgreSQL,
   mssql: MSSQL,
   oracle: PLSQL,
+}
+
+const FORMAT_DIALECTS: Record<DBKind, Parameters<typeof formatDialect>[1]['dialect']> = {
+  mysql: sqlFormatterMysql,
+  postgres: postgresql,
+  mssql: transactsql,
+  oracle: plsql,
 }
 
 // Picks a short alias for table — initials of each `_`-separated word
@@ -72,6 +80,30 @@ function statementAtCursor(state: EditorState, cursorPos: number): string {
   while (node && node.name !== 'Statement' && node.parent) node = node.parent
   if (!node || node.name !== 'Statement') return state.doc.toString().trim()
   return state.sliceDoc(node.from, node.to).trim()
+}
+
+// DataGrip's "Complete Current Statement" (Mod-Shift-Enter): finds the end
+// of the statement the cursor is in, ignoring trailing whitespace, and
+// inserts a ';' there if one isn't already present — so you don't have to
+// jump to the end of the line yourself just to terminate the statement.
+function completeCurrentStatement(view: EditorView) {
+  const { state } = view
+  const pos = state.selection.main.head
+  let node = syntaxTree(state).resolveInner(pos, -1)
+  while (node && node.name !== 'Statement' && node.parent) node = node.parent
+  const nodeEnd = node && node.name === 'Statement' ? node.to : state.doc.length
+  let end = nodeEnd
+  while (end > 0 && /\s/.test(state.doc.sliceString(end - 1, end))) end--
+
+  if (state.doc.sliceString(Math.max(0, end - 1), end) === ';') {
+    view.dispatch({ selection: { anchor: end } })
+    return true
+  }
+  view.dispatch({
+    changes: { from: end, to: end, insert: ';' },
+    selection: { anchor: end + 1 },
+  })
+  return true
 }
 
 export function QueryPage() {
@@ -173,6 +205,18 @@ export function QueryPage() {
 
   const cmSchema = useMemo(() => schemaWithAliasCompletion(schema), [schema])
 
+  // DataGrip's Reformat Code (Mod-Alt-l): formats the selection, or the
+  // whole document if there is none.
+  function formatEditor() {
+    const view = editorRef.current?.view
+    if (!view || !kind) return true
+    const sel = view.state.selection.main
+    const [from, to] = sel.empty ? [0, view.state.doc.length] : [sel.from, sel.to]
+    const formatted = formatDialect(view.state.sliceDoc(from, to), { dialect: FORMAT_DIALECTS[kind] })
+    view.dispatch({ changes: { from, to, insert: formatted } })
+    return true
+  }
+
   const extensions = useMemo(
     () => [
       sql({ dialect: kind ? DIALECTS[kind] : undefined, schema: cmSchema, upperCaseKeywords: true }),
@@ -191,9 +235,13 @@ export function QueryPage() {
             },
           },
           { key: 'Tab', run: acceptCompletion },
+          // Matches JetBrains DataGrip's default bindings, per user request.
+          { key: 'Mod-Alt-l', run: formatEditor },
+          { key: 'Mod-Shift-Enter', run: completeCurrentStatement },
         ]),
       ),
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [kind, cmSchema],
   )
 
@@ -225,8 +273,21 @@ export function QueryPage() {
         onChange={setStatement}
       />
       <div>
-        <button onClick={run} disabled={running}>
+        <button onClick={run} disabled={running} title="Ctrl/Cmd+Enter">
           실행
+        </button>
+        <button type="button" onClick={formatEditor} title="Ctrl/Cmd+Alt+L">
+          포맷팅
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const view = editorRef.current?.view
+            if (view) completeCurrentStatement(view)
+          }}
+          title="Ctrl/Cmd+Shift+Enter"
+        >
+          문장 완성(;)
         </button>
         <button type="button" onClick={loadSchema}>
           스키마 새로고침
