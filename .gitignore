@@ -5,3 +5,11 @@
 
 # IDE 설정
 .idea/
+
+# 개발 중 생성되는 로그 파일
+server/dev-out.log
+server/dev-err.log
+client/dev.log
+
+# Playwright MCP 실행 아티팩트
+.playwright-mcp/
