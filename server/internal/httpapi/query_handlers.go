@@ -60,7 +60,7 @@ func (s *Server) handleExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	result, err := query.Execute(db, req.Statement)
+	result, err := query.Execute(db, conn.Kind, req.Statement)
 	if isWrite {
 		errMsg := ""
 		if err != nil {

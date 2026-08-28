@@ -6,7 +6,15 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"dbtool/server/internal/store"
 )
+
+// testKind is passed to Execute in tests that don't exercise the ADR 0008
+// SELECT * rewrite — its value is irrelevant since rewriteSelectStarLOB
+// bails out before it matters for any statement that isn't `SELECT * FROM
+// <table>`.
+const testKind = store.DBKindMySQL
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -72,7 +80,7 @@ func TestExecuteRead_TruncatesLargeCell(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	result, err := Execute(db, "SELECT id, payload FROM t")
+	result, err := Execute(db, testKind, "SELECT id, payload FROM t")
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -92,6 +100,28 @@ func TestExecuteRead_TruncatesLargeCell(t *testing.T) {
 	}
 }
 
+// TestExecuteRead_SelectStar_FailsOpenOnLookupError exercises the ADR 0008
+// rewrite path with a DB kind whose LOB-column lookup query isn't valid
+// SQL for this test's SQLite backend — it must fail open (fall back to the
+// original statement) rather than surface the lookup error to the caller.
+func TestExecuteRead_SelectStar_FailsOpenOnLookupError(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec("CREATE TABLE t (id INTEGER, name TEXT)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO t (id, name) VALUES (1, 'hello')"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	result, err := Execute(db, testKind, "SELECT * FROM t")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][1] != "hello" {
+		t.Fatalf("expected the original SELECT * to still run, got rows=%v", result.Rows)
+	}
+}
+
 func TestExecuteRead_LeavesSmallCellUntouched(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER, name TEXT)"); err != nil {
@@ -101,7 +131,7 @@ func TestExecuteRead_LeavesSmallCellUntouched(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	result, err := Execute(db, "SELECT id, name FROM t")
+	result, err := Execute(db, testKind, "SELECT id, name FROM t")
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

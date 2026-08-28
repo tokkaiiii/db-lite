@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"unicode/utf8"
+
+	"dbtool/server/internal/store"
 )
 
 // DefaultRowLimit caps how many rows a read (SELECT-class) statement
@@ -39,14 +41,16 @@ type Result struct {
 	RowsAffected int64    `json:"rowsAffected,omitempty"`
 }
 
-// Execute runs stmt against db. Read statements are capped at
-// DefaultRowLimit rows; write statements run via Exec and report the
-// affected row count.
-func Execute(db *sql.DB, stmt string) (*Result, error) {
+// Execute runs stmt against db (open for kind). Read statements are capped
+// at DefaultRowLimit rows and, when they match the narrow `SELECT * FROM
+// <table>` shape ADR 0008 describes, rewritten to pre-truncate any
+// LOB-class column on the DB server itself. Write statements run via Exec
+// and report the affected row count.
+func Execute(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
 	if IsWrite(stmt) {
 		return executeWrite(db, stmt)
 	}
-	return executeRead(db, stmt)
+	return executeRead(db, kind, stmt)
 }
 
 func executeWrite(db *sql.DB, stmt string) (*Result, error) {
@@ -62,8 +66,8 @@ func executeWrite(db *sql.DB, stmt string) (*Result, error) {
 	return &Result{RowsAffected: affected}, nil
 }
 
-func executeRead(db *sql.DB, stmt string) (*Result, error) {
-	rows, err := db.Query(stmt)
+func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
+	rows, err := db.Query(rewriteSelectStarLOB(db, kind, stmt))
 	if err != nil {
 		return nil, err
 	}
