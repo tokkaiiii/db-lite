@@ -65,6 +65,14 @@ func executeRead(db *sql.DB, stmt string) (*Result, error) {
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
+		for i, v := range raw {
+			// Drivers (notably MySQL) return string-typed columns as
+			// []byte; left as-is, encoding/json base64-encodes them
+			// instead of emitting readable text.
+			if b, ok := v.([]byte); ok {
+				raw[i] = string(b)
+			}
+		}
 		result.Rows = append(result.Rows, raw)
 	}
 	return result, rows.Err()
