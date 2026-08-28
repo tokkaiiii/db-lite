@@ -32,6 +32,8 @@ Docker나 JVM 설치조차 어려운 폐쇄망 Windows 서버에도 띄울 수 �
 
 서버 바이너리 하나로 API와 웹 UI를 함께 서빙합니다. 클라이언트를 빌드해 서버가 내장(`go:embed`)하는 위치에 복사한 뒤 빌드하세요.
 
+macOS/Linux:
+
 ```bash
 cd client
 npm install
@@ -45,6 +47,21 @@ cd ../server
 go build -o dbtool ./cmd/server
 ```
 
+Windows (PowerShell):
+
+```powershell
+cd client
+npm install
+npm run build
+
+# 빌드 산출물을 서버가 embed하는 위치로 복사
+Remove-Item -Recurse -Force ..\server\internal\httpapi\dist -ErrorAction SilentlyContinue
+Copy-Item -Recurse dist ..\server\internal\httpapi\dist
+
+cd ..\server
+go build -o dbtool.exe ./cmd/server
+```
+
 ### 2. 환경변수 설정 후 실행
 
 | 환경변수 | 필수 | 기본값 | 설명 |
@@ -54,11 +71,22 @@ go build -o dbtool ./cmd/server
 | `DBTOOL_SQLITE_PATH` | 아니오 | `dbtool.sqlite` | 앱 메타데이터(User/Connection/Permission/Audit Log)를 저장할 SQLite 파일 경로 |
 | `DBTOOL_BOOTSTRAP_ADMIN_USER` / `DBTOOL_BOOTSTRAP_ADMIN_PASSWORD` | 아니오 | 없음 | 최초 실행 시(User가 0명일 때만) 이 계정으로 첫 Admin을 자동 생성 |
 
+macOS/Linux (bash/zsh):
+
 ```bash
 DBTOOL_JWT_SECRET="충분히-무작위한-값으로-바꾸세요" \
 DBTOOL_BOOTSTRAP_ADMIN_USER=admin \
 DBTOOL_BOOTSTRAP_ADMIN_PASSWORD="바꾸세요" \
 ./dbtool
+```
+
+Windows (PowerShell) — `KEY=value \` 형식은 PowerShell 문법이 아니므로 `$env:`로 하나씩 설정하세요:
+
+```powershell
+$env:DBTOOL_JWT_SECRET="충분히-무작위한-값으로-바꾸세요"
+$env:DBTOOL_BOOTSTRAP_ADMIN_USER="admin"
+$env:DBTOOL_BOOTSTRAP_ADMIN_PASSWORD="바꾸세요"
+./dbtool.exe
 ```
 
 실행 후 `http://<서버주소>:8080`으로 접속해 방금 만든 관리자 계정으로 로그인하면, Connection 등록과 User별 Permission 부여를 시작할 수 있습니다.
@@ -67,12 +95,26 @@ DBTOOL_BOOTSTRAP_ADMIN_PASSWORD="바꾸세요" \
 
 프론트엔드를 수정하며 핫 리로드가 필요하면 클라이언트 dev 서버와 Go 서버를 따로 띄우면 됩니다 (`client/vite.config.ts`가 `/api`를 `localhost:8080`으로 프록시합니다).
 
+macOS/Linux:
+
 ```bash
 # 터미널 1
 cd server && DBTOOL_JWT_SECRET=dev-secret DBTOOL_SQLITE_PATH=dev.sqlite go run ./cmd/server
 
 # 터미널 2
 cd client && npm run dev
+```
+
+Windows (PowerShell):
+
+```powershell
+# 터미널 1
+cd server
+$env:DBTOOL_JWT_SECRET="dev-secret"; $env:DBTOOL_SQLITE_PATH="dev.sqlite"; go run ./cmd/server
+
+# 터미널 2
+cd client
+npm run dev
 ```
 
 ## 지원 DB
