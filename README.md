@@ -118,7 +118,15 @@ DBTOOL_BOOTSTRAP_ADMIN_PASSWORD=바꾸세요
 
 ### 개발 모드
 
-프론트엔드를 수정하며 핫 리로드가 필요하면 클라이언트 dev 서버와 Go 서버를 따로 띄우면 됩니다 (`client/vite.config.ts`가 `/api`를 `localhost:8080`으로 프록시합니다).
+프론트엔드를 수정하며 핫 리로드가 필요하면 클라이언트 dev 서버와 Go 서버를 따로 띄우면 됩니다 (`client/vite.config.ts`가 기본적으로 `/api`를 `localhost:8080`으로 프록시합니다).
+
+서버를 `DBTOOL_LISTEN_ADDR`로 다른 포트에 띄웠거나 클라이언트 dev 서버 포트(기본 `5173`)를 바꾸고 싶다면, `client/.env.example`을 `client/.env`로 복사해 값을 채우세요:
+
+```
+# client/.env
+VITE_DEV_PORT=5174
+VITE_API_PROXY_TARGET=http://localhost:9090
+```
 
 macOS/Linux:
 
