@@ -39,6 +39,19 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, conn)
 }
 
+// handleAdminListConnections returns every registered Connection,
+// regardless of the calling Admin's own Permission — needed so an Admin
+// can grant access to a Connection before anyone (including themself) has
+// any Permission on it.
+func (s *Server) handleAdminListConnections(w http.ResponseWriter, r *http.Request) {
+	conns, err := s.store.ListConnections()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list connections")
+		return
+	}
+	writeJSON(w, http.StatusOK, conns)
+}
+
 func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "connectionID"), 10, 64)
 	if err != nil {

@@ -45,6 +45,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/api/admin/users", s.handleCreateUser)
 			r.Get("/api/admin/users", s.handleListUsers)
 
+			r.Get("/api/admin/connections", s.handleAdminListConnections)
 			r.Post("/api/admin/connections", s.handleCreateConnection)
 			r.Delete("/api/admin/connections/{connectionID}", s.handleDeleteConnection)
 
