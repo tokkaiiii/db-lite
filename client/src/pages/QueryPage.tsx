@@ -268,7 +268,7 @@ export function QueryPage() {
       <CodeMirror
         ref={editorRef}
         value={statement}
-        height="200px"
+        height="500px"
         extensions={extensions}
         onChange={setStatement}
       />

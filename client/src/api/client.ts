@@ -3,6 +3,7 @@ import type {
   Connection,
   ConnectionWithLevel,
   DBKind,
+  Permission,
   PermissionLevel,
   QueryResult,
   User,
@@ -86,7 +87,7 @@ export function adminCreateUser(username: string, password: string, isAdmin: boo
   })
 }
 
-export function adminCreateConnection(input: {
+export interface ConnectionInput {
   name: string
   kind: DBKind
   host: string
@@ -94,9 +95,21 @@ export function adminCreateConnection(input: {
   username: string
   password: string
   serviceName?: string
-}) {
+}
+
+export function adminCreateConnection(input: ConnectionInput) {
   return request<Connection>('/api/admin/connections', {
     method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+// input.password: leave "" to keep the Connection's existing password —
+// it's never sent back by the server (Connection.Password is json:"-"), so
+// the edit form can't prefill it for the user to leave unchanged verbatim.
+export function adminUpdateConnection(id: number, input: ConnectionInput) {
+  return request<Connection>(`/api/admin/connections/${id}`, {
+    method: 'PUT',
     body: JSON.stringify(input),
   })
 }
@@ -114,6 +127,10 @@ export function adminSetPermission(userId: number, connectionId: number, level: 
     method: 'PUT',
     body: JSON.stringify({ userId, connectionId, level }),
   })
+}
+
+export function adminListAllPermissions() {
+  return request<Permission[]>('/api/admin/permissions')
 }
 
 export function adminListAuditLog() {

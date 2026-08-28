@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api/client'
-import type { Connection, PermissionLevel, User } from '../../api/types'
+import type { Connection, Permission, PermissionLevel, User } from '../../api/types'
 
 const LEVELS: PermissionLevel[] = ['none', 'read', 'write']
 
 export function PermissionsPage() {
   const [users, setUsers] = useState<User[]>([])
   const [connections, setConnections] = useState<Connection[]>([])
+  const [permissions, setPermissions] = useState<Permission[]>([])
   const [userId, setUserId] = useState<number | null>(null)
   const [connectionId, setConnectionId] = useState<number | null>(null)
   const [level, setLevel] = useState<PermissionLevel>('read')
   const [status, setStatus] = useState<string | null>(null)
+
+  function reloadPermissions() {
+    api.adminListAllPermissions().then(setPermissions)
+  }
 
   useEffect(() => {
     api.adminListUsers().then((u) => {
@@ -21,6 +26,7 @@ export function PermissionsPage() {
       setConnections(c)
       setConnectionId(c[0]?.id ?? null)
     })
+    reloadPermissions()
   }, [])
 
   async function apply() {
@@ -28,6 +34,20 @@ export function PermissionsPage() {
     setStatus(null)
     await api.adminSetPermission(userId, connectionId, level)
     setStatus('저장되었습니다')
+    reloadPermissions()
+  }
+
+  async function revoke(p: Permission) {
+    await api.adminSetPermission(p.userId, p.connectionId, 'none')
+    reloadPermissions()
+  }
+
+  function usernameOf(id: number) {
+    return users.find((u) => u.id === id)?.username ?? `#${id}`
+  }
+
+  function connectionNameOf(id: number) {
+    return connections.find((c) => c.id === id)?.name ?? `#${id}`
   }
 
   return (
@@ -58,6 +78,30 @@ export function PermissionsPage() {
         <button onClick={apply}>저장</button>
       </div>
       {status && <p>{status}</p>}
+
+      <h2>부여된 권한</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Connection</th>
+            <th>권한</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {permissions.map((p) => (
+            <tr key={`${p.userId}-${p.connectionId}`}>
+              <td>{usernameOf(p.userId)}</td>
+              <td>{connectionNameOf(p.connectionId)}</td>
+              <td>{p.level}</td>
+              <td>
+                <button onClick={() => revoke(p)}>회수</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

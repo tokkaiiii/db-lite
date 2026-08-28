@@ -30,3 +30,12 @@ func (s *Server) handleSetPermission(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Server) handleListAllPermissions(w http.ResponseWriter, r *http.Request) {
+	perms, err := s.store.ListAllPermissions()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list permissions")
+		return
+	}
+	writeJSON(w, http.StatusOK, perms)
+}

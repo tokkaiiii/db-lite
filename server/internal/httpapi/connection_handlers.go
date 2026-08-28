@@ -41,6 +41,54 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, conn)
 }
 
+// handleUpdateConnection edits an existing Connection in place, so
+// Permissions already granted on it survive the fix — unlike delete-then-
+// recreate, which cascades and drops every User's Permission on it. An
+// empty Password in the request keeps the existing one, since Create never
+// verifies the target is even reachable and Password is never sent back to
+// the client to prefill (store.Connection.Password is json:"-"), so most
+// edits (a host/port typo) shouldn't force re-entering it blind.
+func (s *Server) handleUpdateConnection(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "connectionID"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection id")
+		return
+	}
+
+	var req createConnectionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	existing, err := s.store.GetConnection(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "connection not found")
+		return
+	}
+
+	password := req.Password
+	if password == "" {
+		password = existing.Password
+	}
+
+	updated, err := s.store.UpdateConnection(store.Connection{
+		ID:          id,
+		Name:        req.Name,
+		Kind:        req.Kind,
+		Host:        req.Host,
+		Port:        req.Port,
+		Username:    req.Username,
+		Password:    password,
+		ServiceName: req.ServiceName,
+	})
+	if err != nil {
+		writeError(w, http.StatusConflict, "connection name already exists")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // handleAdminListConnections returns every registered Connection,
 // regardless of the calling Admin's own Permission — needed so an Admin
 // can grant access to a Connection before anyone (including themself) has

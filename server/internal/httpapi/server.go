@@ -49,8 +49,10 @@ func (s *Server) Router() http.Handler {
 
 			r.Get("/api/admin/connections", s.handleAdminListConnections)
 			r.Post("/api/admin/connections", s.handleCreateConnection)
+			r.Put("/api/admin/connections/{connectionID}", s.handleUpdateConnection)
 			r.Delete("/api/admin/connections/{connectionID}", s.handleDeleteConnection)
 
+			r.Get("/api/admin/permissions", s.handleListAllPermissions)
 			r.Put("/api/admin/permissions", s.handleSetPermission)
 
 			r.Get("/api/admin/audit-log", s.handleListAuditLog)

@@ -47,6 +47,17 @@ func (s *Store) ListConnections() ([]Connection, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) UpdateConnection(c Connection) (*Connection, error) {
+	_, err := s.db.Exec(
+		`UPDATE connections SET name = ?, kind = ?, host = ?, port = ?, username = ?, password = ?, service_name = ? WHERE id = ?`,
+		c.Name, c.Kind, c.Host, c.Port, c.Username, c.Password, c.ServiceName, c.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetConnection(c.ID)
+}
+
 func (s *Store) DeleteConnection(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM connections WHERE id = ?`, id)
 	return err

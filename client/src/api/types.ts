@@ -23,6 +23,12 @@ export interface ConnectionWithLevel extends Connection {
   level: PermissionLevel
 }
 
+export interface Permission {
+  userId: number
+  connectionId: number
+  level: PermissionLevel
+}
+
 export interface AuditLogEntry {
   id: number
   userId: number

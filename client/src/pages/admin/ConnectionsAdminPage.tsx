@@ -13,6 +13,7 @@ const DEFAULT_PORTS: Record<DBKind, number> = {
 
 export function ConnectionsAdminPage() {
   const [connections, setConnections] = useState<Connection[]>([])
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<DBKind>('mssql')
   const [host, setHost] = useState('')
@@ -28,31 +29,56 @@ export function ConnectionsAdminPage() {
 
   useEffect(reload, [])
 
-  async function handleCreate(e: FormEvent) {
+  function resetForm() {
+    setEditingId(null)
+    setName('')
+    setKind('mssql')
+    setHost('')
+    setPort(DEFAULT_PORTS.mssql)
+    setUsername('')
+    setPassword('')
+    setServiceName('')
+  }
+
+  function startEdit(c: Connection) {
+    setEditingId(c.id)
+    setName(c.name)
+    setKind(c.kind)
+    setHost(c.host)
+    setPort(c.port)
+    setUsername(c.username)
+    // Never prefilled — the server doesn't send it back, and leaving this
+    // blank on submit means "keep the existing password" (see api/client.ts).
+    setPassword('')
+    setServiceName(c.serviceName)
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
-      await api.adminCreateConnection({ name, kind, host, port, username, password, serviceName })
-      setName('')
-      setHost('')
-      setUsername('')
-      setPassword('')
-      setServiceName('')
+      if (editingId != null) {
+        await api.adminUpdateConnection(editingId, { name, kind, host, port, username, password, serviceName })
+      } else {
+        await api.adminCreateConnection({ name, kind, host, port, username, password, serviceName })
+      }
+      resetForm()
       reload()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '생성에 실패했습니다')
+      setError(err instanceof ApiError ? err.message : editingId != null ? '수정에 실패했습니다' : '생성에 실패했습니다')
     }
   }
 
   async function handleDelete(id: number) {
     await api.adminDeleteConnection(id)
+    if (editingId === id) resetForm()
     reload()
   }
 
   return (
     <div>
       <h1>Connection 관리</h1>
-      <form onSubmit={handleCreate} className="inline-form">
+      <form onSubmit={handleSubmit} className="inline-form">
         <input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
         <select
           value={kind}
@@ -77,7 +103,7 @@ export function ConnectionsAdminPage() {
         />
         <input placeholder="계정" value={username} onChange={(e) => setUsername(e.target.value)} />
         <input
-          placeholder="비밀번호"
+          placeholder={editingId != null ? '비밀번호 (비우면 기존 값 유지)' : '비밀번호'}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -89,7 +115,12 @@ export function ConnectionsAdminPage() {
             onChange={(e) => setServiceName(e.target.value)}
           />
         )}
-        <button type="submit">추가</button>
+        <button type="submit">{editingId != null ? '수정 저장' : '추가'}</button>
+        {editingId != null && (
+          <button type="button" onClick={resetForm}>
+            취소
+          </button>
+        )}
       </form>
       {error && <p className="error">{error}</p>}
       <table>
@@ -112,6 +143,7 @@ export function ConnectionsAdminPage() {
               <td>{c.username}</td>
               <td>{c.serviceName}</td>
               <td>
+                <button onClick={() => startEdit(c)}>수정</button>
                 <button onClick={() => handleDelete(c.id)}>삭제</button>
               </td>
             </tr>

@@ -106,6 +106,57 @@ func TestSetPermissionNoneRevokesGrant(t *testing.T) {
 	}
 }
 
+func TestListAllPermissionsAcrossUsersAndConnections(t *testing.T) {
+	s := newTestStore(t)
+	alice := mustCreateUser(t, s, "alice")
+	bob := mustCreateUser(t, s, "bob")
+	c1 := mustCreateConnection(t, s, "conn1")
+	c2 := mustCreateConnection(t, s, "conn2")
+
+	if err := s.SetPermission(alice.ID, c1.ID, PermissionRead); err != nil {
+		t.Fatalf("SetPermission: %v", err)
+	}
+	if err := s.SetPermission(bob.ID, c2.ID, PermissionWrite); err != nil {
+		t.Fatalf("SetPermission: %v", err)
+	}
+
+	perms, err := s.ListAllPermissions()
+	if err != nil {
+		t.Fatalf("ListAllPermissions: %v", err)
+	}
+	if len(perms) != 2 {
+		t.Fatalf("ListAllPermissions returned %d entries, want 2", len(perms))
+	}
+}
+
+func TestUpdateConnectionPreservesPermissions(t *testing.T) {
+	s := newTestStore(t)
+	u := mustCreateUser(t, s, "alice")
+	c := mustCreateConnection(t, s, "conn1")
+	if err := s.SetPermission(u.ID, c.ID, PermissionWrite); err != nil {
+		t.Fatalf("SetPermission: %v", err)
+	}
+
+	updated, err := s.UpdateConnection(Connection{
+		ID: c.ID, Name: "conn1-fixed", Kind: DBKindMySQL, Host: "otherhost", Port: 3307,
+		Username: "u2", Password: "p2",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConnection: %v", err)
+	}
+	if updated.Host != "otherhost" || updated.Port != 3307 || updated.Name != "conn1-fixed" {
+		t.Errorf("updated connection = %+v, fields didn't take", updated)
+	}
+
+	level, err := s.GetPermission(u.ID, c.ID)
+	if err != nil {
+		t.Fatalf("GetPermission: %v", err)
+	}
+	if level != PermissionWrite {
+		t.Errorf("GetPermission after update = %q, want %q (editing must not disturb existing Permissions)", level, PermissionWrite)
+	}
+}
+
 func TestListUsersReturnsEmptySliceNotNil(t *testing.T) {
 	s := newTestStore(t)
 	users, err := s.ListUsers()

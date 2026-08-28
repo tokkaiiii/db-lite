@@ -35,6 +35,27 @@ func (s *Store) GetPermission(userID, connectionID int64) (PermissionLevel, erro
 	return level, nil
 }
 
+// ListAllPermissions returns every granted (non-none) Permission across
+// every User and Connection, for an Admin to review who has access to
+// what.
+func (s *Store) ListAllPermissions() ([]Permission, error) {
+	rows, err := s.db.Query(`SELECT user_id, connection_id, level FROM permissions ORDER BY user_id, connection_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Permission{}
+	for rows.Next() {
+		var p Permission
+		if err := rows.Scan(&p.UserID, &p.ConnectionID, &p.Level); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // ListPermissionsForUser returns every Connection the given User has any
 // (non-none) access to, together with the granted level.
 func (s *Store) ListPermissionsForUser(userID int64) ([]Permission, error) {
