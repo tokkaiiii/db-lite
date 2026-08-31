@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>DB Lite 서버 연결</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    input { width: 100%; padding: 8px; margin-bottom: 12px; box-sizing: border-box; }
+    button { padding: 8px 16px; }
+    #error { color: #c0392b; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h2>DB Lite 서버 주소</h2>
+  <p>접속할 db-lite 서버 주소를 입력하세요.</p>
+  <input id="url" type="text" placeholder="http://192.168.0.10:8080" />
+  <button id="connect">연결</button>
+  <p id="error"></p>
+  <script src="setup.js"></script>
+</body>
+</html>

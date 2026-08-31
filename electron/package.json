@@ -1,0 +1,27 @@
+{
+  "name": "db-lite-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "db-lite 얇은 Electron 클라이언트 — 서버를 내장하지 않고 저장된 서버 주소로 접속만 한다 (ADR 0010 참고)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.dblite.desktop",
+    "productName": "DB Lite",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
