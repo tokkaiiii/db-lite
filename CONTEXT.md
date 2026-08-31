@@ -1,6 +1,6 @@
 # DB 조회/실행 도구 (DBeaver-lite)
 
-사내망에서 여러 종류의 DB(MSSQL/MySQL/PostgreSQL/Oracle)를 조회하고 쿼리를 실행할 수 있게 해주는 웹 기반 도구. Go 서버가 DB에 접근 권한이 있는 위치에서 상시 구동되고, 사용자는 브라우저(추후 Electron)로 접속해 사용한다.
+사내망에서 여러 종류의 DB(MSSQL/MySQL/PostgreSQL/Oracle)를 조회하고 쿼리를 실행할 수 있게 해주는 웹 기반 도구. Go 서버가 DB에 접근 권한이 있는 위치에서 상시 구동되고, 사용자는 브라우저 또는 Electron 클라이언트(서버를 내장하지 않는 얇은 셸, [ADR 0010](docs/adr/0010-electron-thin-client-shell.md))로 접속해 사용한다.
 
 ## Language
 
