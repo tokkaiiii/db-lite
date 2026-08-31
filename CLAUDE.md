@@ -6,6 +6,7 @@
 
 - `server/`: Go 백엔드 (REST API + `go:embed`로 내장한 React 클라이언트를 함께 서빙)
 - `client/`: React + Vite 프론트엔드, CodeMirror 6 기반 쿼리 에디터
+- `electron/`: 서버를 내장하지 않는 얇은 데스크톱 셸 (ADR 0010) — 서버 주소 입력 후 그 주소를 BrowserWindow로 띄울 뿐, client/의 코드는 번들링하지 않는다
 - 개발 모드에서는 `server`(Go, 기본 :8080)와 `client`(Vite dev 서버, 기본 :5173)를 따로 띄운다 — README의 "개발 모드" 절 참고
 
 ## 이 환경의 개발 습관
@@ -20,6 +21,9 @@
 - **코드만 보고 "될 것 같다"로 끝내지 않는다.** 이 저장소는 DB 도구라 실제 버그(예: MySQL 비밀번호 특수문자로 DSN이 깨지는 문제, Postgres가 항상 고정 DB에만 붙던 문제, Oracle 서비스명 누락)가 전부 실제 Docker 컨테이너로 조회/쓰기까지 돌려봐야 드러났다. DB 연결이 얽힌 변경은 Docker로 해당 DB 종류를 띄워 Connection 등록 → Permission 부여 → 쿼리 실행까지 브라우저(Playwright)로 직접 확인한다.
 - 프론트엔드 전용 변경(에디터 UI, 자동완성 등)은 Go 서버 재빌드가 필요 없다 — 헷갈리지 말 것.
 - 테스트에 쓴 Docker 컨테이너, Connection, Permission은 세션이 끝나기 전에 정리한다(`docker rm -f`, 테스트용 Connection 삭제).
+- **Electron(`electron/`) 변경은 Playwright로 볼 수 없다.** `cd electron && npm start`로 띄운 뒤, `tasklist //FI "IMAGENAME eq electron.exe" //V`(빌드 후엔 `DB Lite.exe`)나 PowerShell `Get-Process -Name "<이름>" | Select MainWindowTitle`로 창 제목을 읽어 실제로 원하는 화면(설정 창 vs 서버 접속 화면)이 떴는지 확인한다. 끝나면 `taskkill //F //IM electron.exe //T`로 정리.
+- **Electron 패키징 검증**: `npm run build`(electron-builder)로 만든 `dist/win-unpacked/*.exe`를 실행해서 확인하고, `npx asar list dist/win-unpacked/resources/app.asar`로 의도한 파일만 들어갔는지 점검한다. 설치 프로그램(`*.exe` installer) 자체는 시스템을 변경하므로 실행하지 않는다.
+- **`electron/`의 userData(설정 저장 위치)는 `package.json`의 `name` 필드(`db-lite-desktop`) 기준으로 생성된다** (`productName`이 아님) — dev(`npm start`)와 패키징 빌드가 같은 설정 파일을 공유하므로, 이전 테스트에서 저장된 서버 주소가 다음 실행에도 그대로 남아있을 수 있다.
 
 ## Go 테스트 컨벤션
 
