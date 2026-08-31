@@ -7,7 +7,10 @@ export function Layout() {
   return (
     <div>
       <header className="topbar">
-        <nav>
+        <nav style={{ alignItems: 'center' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-bright)', fontWeight: 600, marginRight: '0.5rem' }}>
+            DB Lite
+          </span>
           <Link to="/">Connections</Link>
           {claims?.isAdmin && (
             <>
