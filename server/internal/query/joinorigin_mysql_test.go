@@ -125,11 +125,37 @@ func TestPrepareJoinOriginsMySQL_DistinctBailsOutEntirely(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOriginsMySQL_NoJoinBailsOut(t *testing.T) {
+// TestPrepareJoinOriginsMySQL_SingleTableSupported documents the ADR 0011
+// fix for a real bug: a single real table with an explicit column list
+// used to fall between ADR 0009's `SELECT *`-only path and this pass's
+// original 2-table-minimum gate, so no origins were ever produced and the
+// download button never appeared for a query as ordinary as `SELECT id,
+// name FROM users`. A single table is now accepted just like a JOIN — PK
+// lookup still fails open against this test's SQLite backend (see the
+// PKLookupFailsOpen-style tests below), so origins stay nil here; Docker
+// verification confirms the end-to-end success case.
+func TestPrepareJoinOriginsMySQL_SingleTableSupported(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT id, name FROM users")
-	if ok {
-		t.Error("prepareJoinOriginsMySQL matched a single-table statement, want reject (that's ADR 0008/0009's job)")
+	_, origins, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT id, name FROM users")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMySQL rejected a single-table explicit-column-list statement, want accept (ADR 0011 gap fix)")
+	}
+	if len(origins) != 2 {
+		t.Fatalf("origins = %v, want 2 entries (one per selected column)", origins)
+	}
+}
+
+// TestPrepareJoinOriginsMySQL_SingleTableUnqualifiedColumnSupported
+// documents that, unlike in a JOIN, an unqualified column in a single-table
+// query is unambiguous and must not be treated as an unrecognized shape.
+func TestPrepareJoinOriginsMySQL_SingleTableUnqualifiedColumnSupported(t *testing.T) {
+	db := newTestDB(t)
+	_, origins, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT name FROM users")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMySQL rejected a single-table statement with an unqualified column, want accept")
+	}
+	if len(origins) != 1 {
+		t.Fatalf("origins = %v, want 1 entry", origins)
 	}
 }
 

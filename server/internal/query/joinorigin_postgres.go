@@ -20,9 +20,10 @@ type postgresTableRef struct {
 }
 
 // prepareJoinOriginsPostgres is the Postgres dialect's ADR 0011
-// JOIN/derived-table download pass — see prepareJoinOriginsMySQL for the
-// shared rationale and design (this mirrors it; only the AST shapes
-// differ). CTEs (WITH ...) aren't attempted yet — see the wayfinder issue.
+// JOIN/derived-table/single-table download pass — see
+// prepareJoinOriginsMySQL for the shared rationale and design (this mirrors
+// it; only the AST shapes differ). CTEs (WITH ...) aren't attempted yet —
+// see the wayfinder issue.
 //
 // Parsing/deparsing goes through wasilibs/go-pgquery — a drop-in for
 // pganalyze/pg_query_go that runs the real Postgres parser compiled to
@@ -46,7 +47,7 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 	}
 
 	aliasToRef, order, tablesOK := collectJoinTablesPostgres(sel.FromClause)
-	if !tablesOK || len(aliasToRef) < 2 {
+	if !tablesOK || len(aliasToRef) == 0 {
 		return stmt, nil, false
 	}
 
@@ -144,15 +145,34 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 			continue
 		}
 		colRef := resTarget.Val.GetColumnRef()
-		if colRef == nil || len(colRef.Fields) != 2 {
-			continue // unqualified/computed column: ambiguous or unsupported
+		if colRef == nil {
+			continue // a computed expression: not traceable
 		}
-		qualifier := colRef.Fields[0].GetString_()
-		column := colRef.Fields[1].GetString_()
-		if qualifier == nil || column == nil {
+		var outerAlias string
+		var column *pg_query.String
+		switch len(colRef.Fields) {
+		case 1:
+			// Unqualified is only unambiguous when FROM has exactly one
+			// table — same rule the derived-table pass already relies on
+			// (resolveDerivedColumnPostgres).
+			if len(order) != 1 {
+				continue
+			}
+			outerAlias = order[0]
+			column = colRef.Fields[0].GetString_()
+		case 2:
+			qualifier := colRef.Fields[0].GetString_()
+			if qualifier == nil {
+				continue
+			}
+			outerAlias = qualifier.Sval
+			column = colRef.Fields[1].GetString_()
+		default:
 			continue
 		}
-		outerAlias := qualifier.Sval
+		if column == nil {
+			continue
+		}
 		ref, known := aliasToRef[outerAlias]
 		if !known {
 			continue

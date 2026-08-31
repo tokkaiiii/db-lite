@@ -127,7 +127,7 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 	}
 
 	aliasToRef, order, tablesOK := collectJoinTablesOracle(fromClause.Table_ref_list())
-	if !tablesOK || len(aliasToRef) < 2 {
+	if !tablesOK || len(aliasToRef) == 0 {
 		return stmt, nil, false
 	}
 
@@ -224,14 +224,33 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 			continue
 		}
 		ge := unwrapGeneralElementOracle(elem.Expression())
-		if ge == nil || len(ge.AllGeneral_element_part()) != 2 {
-			continue // unqualified or computed column in a JOIN: ambiguous
+		if ge == nil {
+			continue // a computed expression: not traceable
 		}
 		parts := ge.AllGeneral_element_part()
-		if parts[0].Function_argument() != nil || parts[1].Function_argument() != nil {
-			continue // e.g. `pkg.func()`, not a plain column reference
+		var outerAlias, innerColName string
+		switch len(parts) {
+		case 1:
+			if parts[0].Function_argument() != nil {
+				continue // a function call, e.g. `func()`
+			}
+			// Unqualified is only unambiguous when FROM has exactly one
+			// table — same rule the derived-table pass already relies on
+			// (resolveDerivedColumnOracle).
+			if len(order) != 1 {
+				continue
+			}
+			outerAlias = order[0]
+			innerColName = oracleUnquote(parts[0].Id_expression().GetText())
+		case 2:
+			if parts[0].Function_argument() != nil || parts[1].Function_argument() != nil {
+				continue // e.g. `pkg.func()`, not a plain column reference
+			}
+			outerAlias = oracleUnquote(parts[0].Id_expression().GetText())
+			innerColName = oracleUnquote(parts[1].Id_expression().GetText())
+		default:
+			continue
 		}
-		outerAlias := oracleUnquote(parts[0].Id_expression().GetText())
 		ref, known := aliasToRef[outerAlias]
 		if !known {
 			continue
@@ -253,8 +272,7 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 			continue
 		}
 
-		colName := oracleUnquote(parts[1].Id_expression().GetText())
-		table, innerAlias, ok := resolveDerivedColumnOracle(ref.Derived, colName)
+		table, innerAlias, ok := resolveDerivedColumnOracle(ref.Derived, innerColName)
 		if !ok {
 			continue
 		}

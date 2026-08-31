@@ -91,10 +91,34 @@ func TestCollectJoinTablesOracle_RejectsUnionInDerivedTable(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOriginsOracle_NoJoinBailsOut(t *testing.T) {
-	_, _, ok := prepareJoinOriginsOracle(nil, store.DBKindOracle, `SELECT id, name FROM users`)
-	if ok {
-		t.Error("prepareJoinOriginsOracle matched a single-table statement, want reject")
+// TestPrepareJoinOriginsOracle_SingleTableSupported documents the ADR 0011
+// fix for a real bug — see the MySQL test of the same shape for the full
+// rationale. Needs a real (in-memory) DB, unlike the other Oracle tests
+// above, because a single table now reaches PK lookup; it still fails open
+// against this test's SQLite backend, so origins stay nil here — Docker
+// verification confirms the end-to-end success case.
+func TestPrepareJoinOriginsOracle_SingleTableSupported(t *testing.T) {
+	db := newTestDB(t)
+	_, origins, ok := prepareJoinOriginsOracle(db, store.DBKindOracle, `SELECT id, name FROM users`)
+	if !ok {
+		t.Fatal("prepareJoinOriginsOracle rejected a single-table explicit-column-list statement, want accept (ADR 0011 gap fix)")
+	}
+	if len(origins) != 2 {
+		t.Fatalf("origins = %v, want 2 entries (one per selected column)", origins)
+	}
+}
+
+// TestPrepareJoinOriginsOracle_SingleTableUnqualifiedColumnSupported
+// documents that, unlike in a JOIN, an unqualified column in a single-table
+// query is unambiguous and must not be treated as an unrecognized shape.
+func TestPrepareJoinOriginsOracle_SingleTableUnqualifiedColumnSupported(t *testing.T) {
+	db := newTestDB(t)
+	_, origins, ok := prepareJoinOriginsOracle(db, store.DBKindOracle, `SELECT name FROM users`)
+	if !ok {
+		t.Fatal("prepareJoinOriginsOracle rejected a single-table statement with an unqualified column, want accept")
+	}
+	if len(origins) != 1 {
+		t.Fatalf("origins = %v, want 1 entry", origins)
 	}
 }
 

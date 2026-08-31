@@ -97,11 +97,33 @@ func TestCollectJoinTablesMSSQL_RejectsUnionInDerivedTable(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOriginsMSSQL_NoJoinBailsOut(t *testing.T) {
+// TestPrepareJoinOriginsMSSQL_SingleTableSupported documents the ADR 0011
+// fix for a real bug — see the MySQL test of the same shape for the full
+// rationale. PK lookup still fails open against this test's SQLite
+// backend, so origins stay nil here; Docker verification confirms the
+// end-to-end success case.
+func TestPrepareJoinOriginsMSSQL_SingleTableSupported(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOriginsMSSQL(db, store.DBKindMSSQL, "SELECT id, name FROM users")
-	if ok {
-		t.Error("prepareJoinOriginsMSSQL matched a single-table statement, want reject")
+	_, origins, ok := prepareJoinOriginsMSSQL(db, store.DBKindMSSQL, "SELECT id, name FROM users")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMSSQL rejected a single-table explicit-column-list statement, want accept (ADR 0011 gap fix)")
+	}
+	if len(origins) != 2 {
+		t.Fatalf("origins = %v, want 2 entries (one per selected column)", origins)
+	}
+}
+
+// TestPrepareJoinOriginsMSSQL_SingleTableUnqualifiedColumnSupported
+// documents that, unlike in a JOIN, an unqualified column in a single-table
+// query is unambiguous and must not be treated as an unrecognized shape.
+func TestPrepareJoinOriginsMSSQL_SingleTableUnqualifiedColumnSupported(t *testing.T) {
+	db := newTestDB(t)
+	_, origins, ok := prepareJoinOriginsMSSQL(db, store.DBKindMSSQL, "SELECT name FROM users")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMSSQL rejected a single-table statement with an unqualified column, want accept")
+	}
+	if len(origins) != 1 {
+		t.Fatalf("origins = %v, want 1 entry", origins)
 	}
 }
 

@@ -21,11 +21,15 @@ type mysqlTableRef struct {
 // prepareJoinOriginsMySQL is the ADR 0011 JOIN/derived-table download path.
 // ADR 0009 already covers PK-having single-table `SELECT *` via a narrow
 // regex (rewrite.go); this handles the next narrowest shapes a real parser
-// can analyze safely: a SELECT over a plain multi-table JOIN, optionally
-// with one of the joined "tables" actually being a derived table (a
-// subquery in FROM) that itself is just a plain table or JOIN — not
-// recursively arbitrary depth. Each output column must be a simple
-// `alias.column` reference.
+// can analyze safely: a SELECT over one or more real tables (optionally
+// JOINed), optionally with one of the "tables" actually being a derived
+// table (a subquery in FROM) that itself is just a plain table or JOIN —
+// not recursively arbitrary depth. This also covers a single real table
+// with an explicit column list (`SELECT id, name FROM users`), the gap
+// ADR 0009's `SELECT *`-only shape and this pass's original JOIN-only gate
+// both missed — see ADR 0011's "단일 테이블도 지원" section. Each output
+// column must be a simple `column` or `alias.column` reference (the former
+// only unambiguous when FROM has exactly one table).
 //
 // CTEs (WITH ...) aren't attempted: this MySQL parser (a 2018-era fork
 // predating MySQL 8.0's WITH support) can't parse them at all, so a
@@ -55,7 +59,7 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	}
 
 	aliasToRef, order, tablesOK := collectJoinTablesMySQL(sel.From)
-	if !tablesOK || len(aliasToRef) < 2 {
+	if !tablesOK || len(aliasToRef) == 0 {
 		return stmt, nil, false
 	}
 
@@ -144,10 +148,19 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 			continue // anything else: origin stays unknown (nil)
 		}
 		colName, isCol := aliasedExpr.Expr.(*sqlparser.ColName)
-		if !isCol || colName.Qualifier.IsEmpty() {
-			continue // unqualified or computed column in a JOIN: ambiguous
+		if !isCol {
+			continue // a computed expression: not traceable
 		}
 		outerAlias := colName.Qualifier.Name.String()
+		if outerAlias == "" {
+			// Unqualified is only unambiguous when FROM has exactly one
+			// table — same rule the derived-table pass already relies on
+			// (resolveDerivedColumnMySQL).
+			if len(order) != 1 {
+				continue
+			}
+			outerAlias = order[0]
+		}
 		ref, known := aliasToRef[outerAlias]
 		if !known {
 			continue

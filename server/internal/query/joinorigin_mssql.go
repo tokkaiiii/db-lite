@@ -44,7 +44,7 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	}
 
 	aliasToRef, order, tablesOK := collectJoinTablesMSSQL(sel.From.Tables)
-	if !tablesOK || len(aliasToRef) < 2 {
+	if !tablesOK || len(aliasToRef) == 0 {
 		return stmt, nil, false
 	}
 
@@ -126,11 +126,26 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		if col.Variable != nil {
 			continue // `@var = expr`: not a single traceable column
 		}
-		qi, isQualified := col.Expression.(*ast.QualifiedIdentifier)
-		if !isQualified || len(qi.Parts) != 2 {
-			continue // unqualified or computed column in a JOIN: ambiguous
+		var outerAlias, colName string
+		switch e := col.Expression.(type) {
+		case *ast.QualifiedIdentifier:
+			if len(e.Parts) != 2 {
+				continue
+			}
+			outerAlias = e.Parts[0].Value
+			colName = e.Parts[1].Value
+		case *ast.Identifier:
+			// Unqualified is only unambiguous when FROM has exactly one
+			// table — same rule the derived-table pass already relies on
+			// (resolveDerivedColumnMSSQL).
+			if len(order) != 1 {
+				continue
+			}
+			outerAlias = order[0]
+			colName = e.Value
+		default:
+			continue // a computed expression in a JOIN: ambiguous
 		}
-		outerAlias := qi.Parts[0].Value
 		ref, known := aliasToRef[outerAlias]
 		if !known {
 			continue
@@ -152,7 +167,7 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 			continue
 		}
 
-		table, innerAlias, ok := resolveDerivedColumnMSSQL(ref.Derived, qi.Parts[1].Value)
+		table, innerAlias, ok := resolveDerivedColumnMSSQL(ref.Derived, colName)
 		if !ok {
 			continue
 		}
