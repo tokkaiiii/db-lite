@@ -28,14 +28,14 @@ func newTestDB(t *testing.T) *sql.DB {
 
 func TestTruncateCell_UnderLimit(t *testing.T) {
 	s := "짧은 문자열"
-	if got := truncateCell(s); got != s {
-		t.Errorf("truncateCell(%q) = %q, want unchanged", s, got)
+	if got := TruncateCell(s); got != s {
+		t.Errorf("TruncateCell(%q) = %q, want unchanged", s, got)
 	}
 }
 
 func TestTruncateCell_OverLimit(t *testing.T) {
 	big := strings.Repeat("a", maxCellBytes+500)
-	got := truncateCell(big)
+	got := TruncateCell(big)
 
 	if len(got) == len(big) {
 		t.Fatalf("expected truncation, got same length %d", len(got))
@@ -55,7 +55,7 @@ func TestTruncateCell_DoesNotSplitMultiByteRune(t *testing.T) {
 	// 한글은 UTF-8에서 3바이트이므로, maxCellBytes가 3의 배수가 아니면
 	// 단순 바이트 슬라이싱은 글자 중간을 잘라 깨진 문자를 만든다.
 	big := strings.Repeat("가", maxCellBytes) // 훨씬 더 많은 바이트
-	got := truncateCell(big)
+	got := TruncateCell(big)
 
 	marker := "...(잘림, 원본"
 	idx := strings.Index(got, marker)
@@ -123,9 +123,9 @@ func TestExecuteRead_SelectStar_FailsOpenOnLookupError(t *testing.T) {
 }
 
 // TestExecuteRead_SelectStar_NoPrimaryKeyLookupLeavesMetadataEmpty documents
-// the ADR 0009 fail-open behavior: testKind has no primary-key lookup query
-// wired up for this SQLite-backed test, so Result.Table/PrimaryKey must
-// stay empty rather than erroring the whole query.
+// the ADR 0009 fail-open behavior: testKind's primary-key lookup query
+// isn't valid SQL against this SQLite-backed test, so Result.ColumnOrigins
+// must stay nil rather than erroring the whole query.
 func TestExecuteRead_SelectStar_NoPrimaryKeyLookupLeavesMetadataEmpty(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -136,8 +136,8 @@ func TestExecuteRead_SelectStar_NoPrimaryKeyLookupLeavesMetadataEmpty(t *testing
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if result.Table != "" || result.PrimaryKey != nil {
-		t.Errorf("Table = %q, PrimaryKey = %v, want both empty", result.Table, result.PrimaryKey)
+	if result.ColumnOrigins != nil {
+		t.Errorf("ColumnOrigins = %v, want nil", result.ColumnOrigins)
 	}
 }
 

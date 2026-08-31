@@ -311,13 +311,6 @@ export function QueryPage() {
   )
 }
 
-// canDownloadCell mirrors the ADR 0009 gate: the server only fills in
-// Table/PrimaryKey when the statement was a plain `SELECT * FROM <table>`
-// on a table that has a primary key.
-function canDownloadCell(connectionId: number | undefined, result: QueryResult): boolean {
-  return connectionId !== undefined && !!result.table && !!result.primaryKey?.length
-}
-
 function QueryResultView({
   result,
   connectionId,
@@ -335,8 +328,10 @@ function QueryResultView({
   }
 
   const columns = result.columns
-  const downloadEnabled = canDownloadCell(connectionId, result)
-  const pkIndexes = downloadEnabled ? result.primaryKey!.map((pk) => columns.indexOf(pk)) : []
+  // ADR 0009 / ADR 0011: whether a given column's download button shows up
+  // is a per-cell decision now (JOINs can trace some columns' origin table
+  // but not others), not a whole-result one — see QueryResult.columnOrigins.
+  const origins = result.columnOrigins
   // 셀 값이 길어 한 줄로 잘려 보일 때, 클릭해서 그 셀만 펼쳐 전체 값을 볼 수
   // 있게 한다 — 원본 다운로드(서버 재조회)와 달리 이미 받아온 값을 그대로
   // 보여주는 것뿐이라 Cell Truncation(2KB)까지만 보인다.
@@ -351,13 +346,15 @@ function QueryResultView({
     })
   }
 
-  async function downloadCell(row: unknown[], column: string) {
+  async function downloadCell(row: unknown[], columnIndex: number, expectedValue: string) {
+    const origin = origins?.[columnIndex]
+    if (!origin) return
     const primaryKey: Record<string, unknown> = {}
-    result.primaryKey!.forEach((pk, i) => {
-      primaryKey[pk] = row[pkIndexes[i]]
+    origin.primaryKeyColumns.forEach((pk, i) => {
+      primaryKey[pk] = row[origin.primaryKeyRowIndexes[i]]
     })
     try {
-      await api.downloadCellFile(connectionId!, { catalog, table: result.table!, column, primaryKey })
+      await api.downloadCellFile(connectionId!, { catalog, table: origin.table, column: columns[columnIndex], primaryKey, expectedValue })
     } catch (e) {
       alert(e instanceof ApiError ? e.message : '다운로드에 실패했습니다.')
     }
@@ -377,10 +374,12 @@ function QueryResultView({
         <tbody>
           {result.rows.map((row, i) => (
             <tr key={i}>
-              {row.map((cell, j) => {
+              {columns.map((_, j) => {
+                const cell = row[j]
                 const cellKey = `${i}-${j}`
                 const text = cell === null ? 'NULL' : String(cell)
                 const expanded = expandedCells.has(cellKey)
+                const downloadEnabled = connectionId !== undefined && !!origins?.[j]
                 return (
                   <td
                     key={j}
@@ -396,7 +395,7 @@ function QueryResultView({
                         title="원본 값 다운로드"
                         onClick={(e) => {
                           e.stopPropagation()
-                          downloadCell(row, columns[j])
+                          downloadCell(row, j, text)
                         }}
                       >
                         ⭳

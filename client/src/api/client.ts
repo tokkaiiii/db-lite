@@ -72,9 +72,15 @@ export function executeQuery(connectionId: number, statement: string, catalog: s
 // Authorization header this app authenticates with, so it fetches the
 // file as a Blob and triggers the save via a synthetic, hidden <a
 // download> click instead of exposing the JWT in a URL.
+//
+// expectedValue is the text the grid cell already shows (NULL -> "NULL",
+// else String(cell)) — the server cross-checks it against the freshly
+// re-fetched value (ADR 0011) so a JOIN download whose column-origin
+// tracking was wrong fails loudly instead of silently returning the wrong
+// file.
 export async function downloadCellFile(
   connectionId: number,
-  params: { catalog: string; table: string; column: string; primaryKey: Record<string, unknown> },
+  params: { catalog: string; table: string; column: string; primaryKey: Record<string, unknown>; expectedValue: string },
 ) {
   const token = getToken()
   const headers = new Headers()

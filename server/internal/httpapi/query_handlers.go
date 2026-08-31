@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -14,6 +15,23 @@ import (
 	"dbtool/server/internal/query"
 	"dbtool/server/internal/store"
 )
+
+// cellText renders a re-fetched cell value (any type database/sql might
+// hand back) the same way query.executeRead renders it for the grid, so
+// the two can be compared byte-for-byte (see handleFetchCell's ADR 0011
+// cross-check). Mirrors query.NewCellFile's type switch.
+func cellText(value any) string {
+	switch v := value.(type) {
+	case []byte:
+		return string(v)
+	case nil:
+		return "NULL"
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
 
 type executeQueryRequest struct {
 	Statement string `json:"statement"`
@@ -85,6 +103,12 @@ type fetchCellRequest struct {
 	Table      string         `json:"table"`
 	Column     string         `json:"column"`
 	PrimaryKey map[string]any `json:"primaryKey"`
+	// ExpectedValue is the text the grid cell already shows for this value
+	// (client builds it the same way: NULL -> "NULL", else String(cell)).
+	// ADR 0011's cross-check compares it against the freshly re-fetched
+	// value so a JOIN download whose parser mis-tracked a column's origin
+	// table fails loudly instead of silently handing back the wrong file.
+	ExpectedValue string `json:"expectedValue"`
 }
 
 // handleFetchCell re-fetches one column's untruncated value for one row
@@ -130,6 +154,18 @@ func (s *Server) handleFetchCell(w http.ResponseWriter, r *http.Request) {
 	value, err := dbconn.FetchCellValue(db, conn.Kind, req.Table, req.Column, req.PrimaryKey)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	if got := query.TruncateCell(cellText(value)); got != req.ExpectedValue {
+		// The origin table/PK the client sent didn't actually produce the
+		// value it's showing — most likely a JOIN download whose ADR 0011
+		// parser mis-tracked which table a column came from (or the row
+		// changed between query and download). Refuse rather than hand
+		// back a file the user will trust as "the" original value.
+		log.Printf("cell download mismatch: table=%s column=%s primaryKey=%v expected=%q got=%q",
+			req.Table, req.Column, req.PrimaryKey, req.ExpectedValue, got)
+		writeError(w, http.StatusInternalServerError, "다운로드한 값이 그리드에 표시된 값과 일치하지 않습니다")
 		return
 	}
 

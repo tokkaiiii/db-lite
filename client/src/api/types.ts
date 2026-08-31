@@ -39,14 +39,24 @@ export interface AuditLogEntry {
   executedAt: string
 }
 
+// ColumnOrigin says which table one result column's value came from and how
+// to find that exact row for a cell-value download (ADR 0009 / ADR 0011).
+// primaryKeyRowIndexes may point past the end of `columns` — a row's raw
+// array can carry hidden PK-carrier cells a JOIN rewrite appended purely so
+// a download can re-fetch the row; those are never rendered.
+export interface ColumnOrigin {
+  table: string
+  primaryKeyColumns: string[]
+  primaryKeyRowIndexes: number[]
+}
+
 export interface QueryResult {
   columns?: string[]
   rows?: unknown[][]
   truncated?: boolean
   rowsAffected?: number
-  // Set only when the statement was a plain `SELECT * FROM <table>` on a
-  // table with a primary key — see ADR 0009. Their presence is what
-  // enables the per-cell "원본 다운로드" button.
-  table?: string
-  primaryKey?: string[]
+  // One entry per `columns` entry; null where the origin couldn't be
+  // pinned down (an aggregate/expression result, an unqualified column in
+  // a JOIN, or a table without a primary key) — see ADR 0009 / ADR 0011.
+  columnOrigins?: (ColumnOrigin | null)[]
 }

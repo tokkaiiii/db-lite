@@ -18,10 +18,12 @@ const DefaultRowLimit = 1000
 // otherwise blow up response size and grid rendering time.
 const maxCellBytes = 2000
 
-// truncateCell shortens s to maxCellBytes (on a valid UTF-8 boundary) and
+// TruncateCell shortens s to maxCellBytes (on a valid UTF-8 boundary) and
 // appends a marker noting the original size, per ADR 0007. Values at or
-// under the limit are returned unchanged.
-func truncateCell(s string) string {
+// under the limit are returned unchanged. Exported so the cell-download
+// handler can build the same text a grid cell shows, to cross-check against
+// a re-fetched value (ADR 0011).
+func TruncateCell(s string) string {
 	if len(s) <= maxCellBytes {
 		return s
 	}
@@ -32,6 +34,18 @@ func truncateCell(s string) string {
 	return fmt.Sprintf("%s...(잘림, 원본 %d바이트)", cut, len(s))
 }
 
+// ColumnOrigin says which table one result column's value came from and how
+// to find the exact database row it belongs to, for a cell-value download
+// (ADR 0009 / ADR 0011): PrimaryKeyColumns names that table's PK columns,
+// and PrimaryKeyRowIndexes says which position in the *same* row's slice
+// holds each one's value — which may point past len(Result.Columns), into a
+// hidden carrier column a JOIN rewrite appended (see prepareJoinOrigins).
+type ColumnOrigin struct {
+	Table                string   `json:"table"`
+	PrimaryKeyColumns    []string `json:"primaryKeyColumns"`
+	PrimaryKeyRowIndexes []int    `json:"primaryKeyRowIndexes"`
+}
+
 // Result is what a single query execution produces, in a shape a REST
 // handler can serialize directly.
 type Result struct {
@@ -39,14 +53,14 @@ type Result struct {
 	Rows         [][]any  `json:"rows,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
 	RowsAffected int64    `json:"rowsAffected,omitempty"`
-	// Table and PrimaryKey are set only when stmt matched the same narrow
-	// `SELECT * FROM <table>` shape ADR 0008 rewrites, and that table has
-	// a primary key — the two facts ADR 0009's cell-value download needs
-	// to safely re-fetch one row's untruncated value. Left empty
-	// otherwise (e.g. JOINs, tables without a primary key): the client
-	// treats that as "download isn't available for this result".
-	Table      string   `json:"table,omitempty"`
-	PrimaryKey []string `json:"primaryKey,omitempty"`
+	// ColumnOrigins has one entry per Columns entry (nil where the origin
+	// couldn't be pinned down — an aggregate/expression result, an
+	// unqualified column in a JOIN, or a table without a primary key).
+	// Rows may carry extra trailing cells beyond len(Columns): hidden PK
+	// carriers a JOIN rewrite injected purely so a cell download can
+	// re-fetch that row later — never meant to be displayed. The client
+	// treats a nil origin as "download isn't available for this cell".
+	ColumnOrigins []*ColumnOrigin `json:"columnOrigins,omitempty"`
 }
 
 // Execute runs stmt against db (open for kind). Read statements are capped
@@ -75,9 +89,9 @@ func executeWrite(db *sql.DB, stmt string) (*Result, error) {
 }
 
 func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
-	rewritten, table, primaryKey := prepareSelectStar(db, kind, stmt)
+	plan := prepareRead(db, kind, stmt)
 
-	rows, err := db.Query(rewritten)
+	rows, err := db.Query(plan.rewritten)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +102,28 @@ func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
 		return nil, err
 	}
 
-	result := &Result{Columns: cols, Rows: [][]any{}, Table: table, PrimaryKey: primaryKey}
+	visibleCount := len(cols)
+	var origins []*ColumnOrigin
+	switch {
+	case plan.singleTable != "":
+		// ADR 0008/0009: `SELECT *` already returns every real column
+		// (including any PK), so nothing's hidden — just find where the PK
+		// columns landed in the driver's actual column order.
+		origins = uniformOrigins(cols, plan.singleTable, plan.singlePK)
+	case plan.joinOrigins != nil:
+		// ADR 0011: origins (and any hidden PK carrier positions) were
+		// already fully resolved statically while building the rewrite.
+		visibleCount = len(plan.joinOrigins)
+		origins = plan.joinOrigins
+	}
+	if visibleCount > len(cols) {
+		// Should never happen, but a hidden-column bookkeeping bug here
+		// must not corrupt what the client sees — fail safe to "no
+		// downloads for this result" rather than misdisplay/miscount rows.
+		visibleCount, origins = len(cols), nil
+	}
+
+	result := &Result{Columns: cols[:visibleCount], Rows: [][]any{}, ColumnOrigins: origins}
 	for rows.Next() {
 		if len(result.Rows) >= DefaultRowLimit {
 			result.Truncated = true
@@ -108,14 +143,70 @@ func executeRead(db *sql.DB, kind store.DBKind, stmt string) (*Result, error) {
 				// Drivers (notably MySQL) return string-typed columns as
 				// []byte; left as-is, encoding/json base64-encodes them
 				// instead of emitting readable text.
-				raw[i] = truncateCell(string(val))
+				raw[i] = TruncateCell(string(val))
 			case string:
 				// Other drivers (e.g. Postgres for TEXT/XML) hand back a
 				// native string directly, so it needs the same cap.
-				raw[i] = truncateCell(val)
+				raw[i] = TruncateCell(val)
 			}
 		}
 		result.Rows = append(result.Rows, raw)
 	}
 	return result, rows.Err()
+}
+
+// readPlan is what prepareRead decides for one statement: the SQL to
+// actually run, and (at most one of) the two download paths' bookkeeping —
+// executeRead resolves this into Result.ColumnOrigins once it knows the
+// driver's actual column list.
+type readPlan struct {
+	rewritten   string
+	singleTable string          // ADR 0008/0009 path; "" if not this shape
+	singlePK    []string        // only meaningful when singleTable != ""
+	joinOrigins []*ColumnOrigin // ADR 0011 path; nil if not this shape
+}
+
+// prepareRead inspects stmt once and decides which download path (if any)
+// applies. It tries the ADR 0008/0009 single-table `SELECT * FROM <table>`
+// shape first (cheap, no parser involved), and only falls back to the
+// ADR 0011 JOIN-parsing path when that narrower shape doesn't match.
+func prepareRead(db *sql.DB, kind store.DBKind, stmt string) readPlan {
+	rewritten, table, primaryKey := prepareSelectStar(db, kind, stmt)
+	if table != "" {
+		return readPlan{rewritten: rewritten, singleTable: table, singlePK: primaryKey}
+	}
+
+	if rw, joinOrigins, ok := prepareJoinOrigins(db, kind, stmt); ok {
+		return readPlan{rewritten: rw, joinOrigins: joinOrigins}
+	}
+
+	return readPlan{rewritten: stmt}
+}
+
+// uniformOrigins builds the ADR 0008/0009 single-table case's
+// ColumnOrigins: every column shares the same table+PK, so all that's
+// needed is finding where each PK column landed in the driver's actual
+// column order (cols).
+func uniformOrigins(cols []string, table string, primaryKey []string) []*ColumnOrigin {
+	if table == "" || len(primaryKey) == 0 {
+		return nil
+	}
+	idxs := make([]int, len(primaryKey))
+	for i, pkCol := range primaryKey {
+		idxs[i] = indexOfString(cols, pkCol)
+	}
+	origins := make([]*ColumnOrigin, len(cols))
+	for i := range cols {
+		origins[i] = &ColumnOrigin{Table: table, PrimaryKeyColumns: primaryKey, PrimaryKeyRowIndexes: idxs}
+	}
+	return origins
+}
+
+func indexOfString(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
 }
