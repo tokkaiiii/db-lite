@@ -3,41 +3,23 @@ package query
 import (
 	"testing"
 
-	"github.com/antlr4-go/antlr/v4"
 	plsqlparser "github.com/bytebase/plsql-parser"
 
 	"dbtool/server/internal/store"
 )
 
 // mustParseQueryBlockOracle parses stmt down to its Query_block, the same
-// path prepareJoinOriginsOracle takes for a plain (non-UNION) SELECT — see
-// that function for why each step is checked.
-func mustParseQueryBlockOracle(t *testing.T, stmt string) plsqlparser.IQuery_blockContext {
+// path prepareJoinOriginsOracle takes for a plain (non-UNION) SELECT.
+func mustParseQueryBlockOracle(t *testing.T, stmt string) *plsqlparser.Query_blockContext {
 	t.Helper()
-	input := antlr.NewInputStream(stmt)
-	lexer := plsqlparser.NewPlSqlLexer(input)
-	errs := &countingErrorListener{}
-	lexer.RemoveErrorListeners()
-	lexer.AddErrorListener(errs)
-	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-	p := plsqlparser.NewPlSqlParser(tokens)
-	p.SetVersion12(true)
-	p.RemoveErrorListeners()
-	p.AddErrorListener(errs)
-	p.BuildParseTrees = true
-
-	selStmt := p.Select_statement()
-	if errs.errors > 0 {
-		t.Fatalf("parse %q: %d syntax error(s)", stmt, errs.errors)
-	}
-	qb := selStmt.Select_only_statement().Subquery().Subquery_basic_elements().Query_block()
-	if qb == nil {
+	qb, ok := parseOracleSelect(stmt)
+	if !ok {
 		t.Fatalf("parse %q: not a plain query block", stmt)
 	}
 	return qb
 }
 
-func TestCollectJoinTablesOracle_Matches(t *testing.T) {
+func TestCollectJoinTablesOracle_MatchesRealTables(t *testing.T) {
 	tests := []struct {
 		name string
 		stmt string
@@ -75,18 +57,37 @@ func TestCollectJoinTablesOracle_Matches(t *testing.T) {
 				t.Fatalf("collectJoinTablesOracle(%q) = %v, want %v", tt.stmt, got, tt.want)
 			}
 			for alias, table := range tt.want {
-				if got[alias] != table {
-					t.Errorf("alias %q -> %q, want %q", alias, got[alias], table)
+				ref := got[alias]
+				if ref.Derived != nil || ref.Table != table {
+					t.Errorf("alias %q -> %+v, want table %q", alias, ref, table)
 				}
 			}
 		})
 	}
 }
 
-func TestCollectJoinTablesOracle_RejectsDerivedTable(t *testing.T) {
-	qb := mustParseQueryBlockOracle(t, `SELECT * FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id`)
+// TestCollectJoinTablesOracle_MatchesDerivedTable documents the one-level
+// derived-table support (ADR 0011): a subquery in FROM resolves to an
+// oracleTableRef with Derived set instead of being rejected outright, so
+// resolveDerivedColumnOracle can look inside it.
+func TestCollectJoinTablesOracle_MatchesDerivedTable(t *testing.T) {
+	qb := mustParseQueryBlockOracle(t, `SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id`)
+	got, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list())
+	if !ok {
+		t.Fatal("collectJoinTablesOracle failed, want match")
+	}
+	if got["u"].Derived == nil {
+		t.Errorf(`alias "u" = %+v, want a Derived select`, got["u"])
+	}
+	if got["o"].Table != "orders" {
+		t.Errorf(`alias "o" = %+v, want table "orders"`, got["o"])
+	}
+}
+
+func TestCollectJoinTablesOracle_RejectsUnionInDerivedTable(t *testing.T) {
+	qb := mustParseQueryBlockOracle(t, `SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id`)
 	if _, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list()); ok {
-		t.Error("collectJoinTablesOracle matched a derived table, want reject")
+		t.Error("collectJoinTablesOracle matched a UNION inside a derived table, want reject")
 	}
 }
 
@@ -97,10 +98,18 @@ func TestPrepareJoinOriginsOracle_NoJoinBailsOut(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOriginsOracle_DerivedTableBailsOut(t *testing.T) {
-	_, _, ok := prepareJoinOriginsOracle(nil, store.DBKindOracle, `SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id`)
-	if ok {
-		t.Error("prepareJoinOriginsOracle matched a derived table, want reject")
+// TestPrepareJoinOriginsOracle_DerivedTableColumnUnresolvable documents
+// that a derived table using `SELECT *` can't be traced by name (ADR
+// 0011's one-level pass doesn't have the inner table's schema to know
+// what `*` expands to) — the statement shape is still recognized
+// (ok=true), the column just gets no origin.
+func TestPrepareJoinOriginsOracle_DerivedTableColumnUnresolvable(t *testing.T) {
+	_, origins, ok := prepareJoinOriginsOracle(nil, store.DBKindOracle, `SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id`)
+	if !ok {
+		t.Fatal("prepareJoinOriginsOracle rejected a recognized derived-table JOIN shape")
+	}
+	if len(origins) != 1 || origins[0] != nil {
+		t.Errorf("origins = %v, want a single nil entry (SELECT * can't be traced by name)", origins)
 	}
 }
 
@@ -134,7 +143,7 @@ func TestPrepareJoinOriginsOracle_UnqualifiedColumnStaysUnknown(t *testing.T) {
 	}
 }
 
-// TestPrepareJoinOriginsOracle_NoPKStillParses exercises the pass with a
+// TestPrepareJoinOriginsOracle_PKLookupFailsOpen exercises the pass with a
 // real (in-memory) DB so dbconn.PrimaryKeyColumns actually runs — testKind
 // here is Oracle, which uses `:1`-style bind placeholders SQLite can't
 // execute, so this documents the same fail-open behavior the other

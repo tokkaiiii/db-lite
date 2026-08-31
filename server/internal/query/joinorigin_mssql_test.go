@@ -25,7 +25,7 @@ func mustParseSelectMSSQL(t *testing.T, stmt string) *ast.SelectStatement {
 	return sel
 }
 
-func TestCollectJoinTablesMSSQL_Matches(t *testing.T) {
+func TestCollectJoinTablesMSSQL_MatchesRealTables(t *testing.T) {
 	tests := []struct {
 		name string
 		stmt string
@@ -63,18 +63,37 @@ func TestCollectJoinTablesMSSQL_Matches(t *testing.T) {
 				t.Fatalf("collectJoinTablesMSSQL(%q) = %v, want %v", tt.stmt, got, tt.want)
 			}
 			for alias, table := range tt.want {
-				if got[alias] != table {
-					t.Errorf("alias %q -> %q, want %q", alias, got[alias], table)
+				ref := got[alias]
+				if ref.Derived != nil || ref.Table != table {
+					t.Errorf("alias %q -> %+v, want table %q", alias, ref, table)
 				}
 			}
 		})
 	}
 }
 
-func TestCollectJoinTablesMSSQL_RejectsDerivedTable(t *testing.T) {
-	sel := mustParseSelectMSSQL(t, "SELECT * FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
+// TestCollectJoinTablesMSSQL_MatchesDerivedTable documents the one-level
+// derived-table support (ADR 0011): a subquery in FROM resolves to a
+// mssqlTableRef with Derived set instead of being rejected outright, so
+// resolveDerivedColumnMSSQL can look inside it.
+func TestCollectJoinTablesMSSQL_MatchesDerivedTable(t *testing.T) {
+	sel := mustParseSelectMSSQL(t, "SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id")
+	got, ok := collectJoinTablesMSSQL(sel.From.Tables)
+	if !ok {
+		t.Fatal("collectJoinTablesMSSQL failed, want match")
+	}
+	if got["u"].Derived == nil {
+		t.Errorf(`alias "u" = %+v, want a Derived select`, got["u"])
+	}
+	if got["o"].Table != "orders" {
+		t.Errorf(`alias "o" = %+v, want table "orders"`, got["o"])
+	}
+}
+
+func TestCollectJoinTablesMSSQL_RejectsUnionInDerivedTable(t *testing.T) {
+	sel := mustParseSelectMSSQL(t, "SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id")
 	if _, ok := collectJoinTablesMSSQL(sel.From.Tables); ok {
-		t.Error("collectJoinTablesMSSQL matched a derived table, want reject")
+		t.Error("collectJoinTablesMSSQL matched a UNION inside a derived table, want reject")
 	}
 }
 
@@ -86,11 +105,19 @@ func TestPrepareJoinOriginsMSSQL_NoJoinBailsOut(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOriginsMSSQL_DerivedTableBailsOut(t *testing.T) {
+// TestPrepareJoinOriginsMSSQL_DerivedTableColumnUnresolvable documents
+// that a derived table using `SELECT *` can't be traced by name (ADR
+// 0011's one-level pass doesn't have the inner table's schema to know
+// what `*` expands to) — the statement shape is still recognized
+// (ok=true), the column just gets no origin.
+func TestPrepareJoinOriginsMSSQL_DerivedTableColumnUnresolvable(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOriginsMSSQL(db, store.DBKindMSSQL, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
-	if ok {
-		t.Error("prepareJoinOriginsMSSQL matched a derived table, want reject")
+	_, origins, ok := prepareJoinOriginsMSSQL(db, store.DBKindMSSQL, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMSSQL rejected a recognized derived-table JOIN shape")
+	}
+	if len(origins) != 1 || origins[0] != nil {
+		t.Errorf("origins = %v, want a single nil entry (SELECT * can't be traced by name)", origins)
 	}
 }
 

@@ -21,7 +21,7 @@ func mustParseSelect(t *testing.T, stmt string) *sqlparser.Select {
 	return sel
 }
 
-func TestCollectJoinTables_Matches(t *testing.T) {
+func TestCollectJoinTablesMySQL_MatchesRealTables(t *testing.T) {
 	tests := []struct {
 		name string
 		stmt string
@@ -59,36 +59,55 @@ func TestCollectJoinTables_Matches(t *testing.T) {
 				t.Fatalf("collectJoinTablesMySQL(%q) = %v, want %v", tt.stmt, got, tt.want)
 			}
 			for alias, table := range tt.want {
-				if got[alias] != table {
-					t.Errorf("alias %q -> %q, want %q", alias, got[alias], table)
+				ref := got[alias]
+				if ref.Derived != nil || ref.Table != table {
+					t.Errorf("alias %q -> %+v, want table %q", alias, ref, table)
 				}
 			}
 		})
 	}
 }
 
-func TestCollectJoinTables_RejectsDerivedTable(t *testing.T) {
-	sel := mustParseSelect(t, "SELECT * FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
-	if _, ok := collectJoinTablesMySQL(sel.From); ok {
-		t.Error("collectJoinTables matched a derived table, want reject")
+// TestCollectJoinTablesMySQL_MatchesDerivedTable documents the one-level
+// derived-table support (ADR 0011): a subquery in FROM resolves to a
+// mysqlTableRef with Derived set instead of being rejected outright, so
+// resolveDerivedColumnMySQL can look inside it.
+func TestCollectJoinTablesMySQL_MatchesDerivedTable(t *testing.T) {
+	sel := mustParseSelect(t, "SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id")
+	got, ok := collectJoinTablesMySQL(sel.From)
+	if !ok {
+		t.Fatal("collectJoinTablesMySQL failed, want match")
+	}
+	if got["u"].Derived == nil {
+		t.Errorf(`alias "u" = %+v, want a Derived select`, got["u"])
+	}
+	if got["o"].Table != "orders" {
+		t.Errorf(`alias "o" = %+v, want table "orders"`, got["o"])
 	}
 }
 
-func TestPrepareJoinOrigins_NonMySQLBailsOut(t *testing.T) {
+func TestCollectJoinTablesMySQL_RejectsUnionInDerivedTable(t *testing.T) {
+	sel := mustParseSelect(t, "SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id")
+	if _, ok := collectJoinTablesMySQL(sel.From); ok {
+		t.Error("collectJoinTablesMySQL matched a UNION inside a derived table, want reject")
+	}
+}
+
+func TestPrepareJoinOriginsMySQL_NonMySQLBailsOut(t *testing.T) {
 	db := newTestDB(t)
 	_, origins, ok := prepareJoinOriginsMySQL(db, store.DBKindPostgres, "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id")
 	if ok || origins != nil {
-		t.Errorf("prepareJoinOrigins on non-MySQL kind = (ok=%v, origins=%v), want (false, nil)", ok, origins)
+		t.Errorf("prepareJoinOriginsMySQL on non-MySQL kind = (ok=%v, origins=%v), want (false, nil)", ok, origins)
 	}
 }
 
-// TestPrepareJoinOrigins_GroupByBailsOutEntirely guards against a real
+// TestPrepareJoinOriginsMySQL_GroupByBailsOutEntirely guards against a real
 // regression found while verifying this against Docker MySQL: appending a
 // hidden PK carrier column to a GROUP BY query can turn a query MySQL would
 // otherwise run into an only_full_group_by error, and doing the same to a
 // DISTINCT query would silently change which rows count as distinct. Both
 // must leave the statement completely untouched.
-func TestPrepareJoinOrigins_GroupByBailsOutEntirely(t *testing.T) {
+func TestPrepareJoinOriginsMySQL_GroupByBailsOutEntirely(t *testing.T) {
 	db := newTestDB(t)
 	stmt := "SELECT u.name, COUNT(*) FROM users u JOIN orders o ON u.id = o.user_id GROUP BY u.name"
 	rewritten, origins, ok := prepareJoinOriginsMySQL(db, testKind, stmt)
@@ -97,7 +116,7 @@ func TestPrepareJoinOrigins_GroupByBailsOutEntirely(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOrigins_DistinctBailsOutEntirely(t *testing.T) {
+func TestPrepareJoinOriginsMySQL_DistinctBailsOutEntirely(t *testing.T) {
 	db := newTestDB(t)
 	stmt := "SELECT DISTINCT u.name FROM users u JOIN orders o ON u.id = o.user_id"
 	rewritten, origins, ok := prepareJoinOriginsMySQL(db, testKind, stmt)
@@ -106,31 +125,39 @@ func TestPrepareJoinOrigins_DistinctBailsOutEntirely(t *testing.T) {
 	}
 }
 
-func TestPrepareJoinOrigins_NoJoinBailsOut(t *testing.T) {
+func TestPrepareJoinOriginsMySQL_NoJoinBailsOut(t *testing.T) {
 	db := newTestDB(t)
 	_, _, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT id, name FROM users")
 	if ok {
-		t.Error("prepareJoinOrigins matched a single-table statement, want reject (that's ADR 0008/0009's job)")
+		t.Error("prepareJoinOriginsMySQL matched a single-table statement, want reject (that's ADR 0008/0009's job)")
 	}
 }
 
-func TestPrepareJoinOrigins_DerivedTableBailsOut(t *testing.T) {
+// TestPrepareJoinOriginsMySQL_DerivedTableColumnUnresolvable documents that
+// a derived table using `SELECT *` can't be traced by name (ADR 0011's
+// one-level pass doesn't have the inner table's schema to know what `*`
+// expands to) — the statement shape is still recognized (ok=true), the
+// column just gets no origin.
+func TestPrepareJoinOriginsMySQL_DerivedTableColumnUnresolvable(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
-	if ok {
-		t.Error("prepareJoinOrigins matched a derived table, want reject")
+	_, origins, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
+	if !ok {
+		t.Fatal("prepareJoinOriginsMySQL rejected a recognized derived-table JOIN shape")
+	}
+	if len(origins) != 1 || origins[0] != nil {
+		t.Errorf("origins = %v, want a single nil entry (SELECT * can't be traced by name)", origins)
 	}
 }
 
-// TestPrepareJoinOrigins_UnqualifiedColumnStaysUnknown documents the
+// TestPrepareJoinOriginsMySQL_UnqualifiedColumnStaysUnknown documents the
 // column-level fail-closed rule (ADR 0011): a column not qualified by a
 // table alias is ambiguous in a JOIN and must not get an origin, even
 // though the statement shape as a whole is recognized.
-func TestPrepareJoinOrigins_UnqualifiedColumnStaysUnknown(t *testing.T) {
+func TestPrepareJoinOriginsMySQL_UnqualifiedColumnStaysUnknown(t *testing.T) {
 	db := newTestDB(t)
 	_, origins, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT count FROM users u JOIN orders o ON u.id = o.user_id")
 	if !ok {
-		t.Fatal("prepareJoinOrigins rejected a recognized JOIN shape")
+		t.Fatal("prepareJoinOriginsMySQL rejected a recognized JOIN shape")
 	}
 	if len(origins) != 1 || origins[0] != nil {
 		t.Errorf("origins = %v, want a single nil entry", origins)
