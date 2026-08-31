@@ -1,6 +1,6 @@
 # DB Lite
 
-사내망 등 폐쇄망에서 MSSQL/MySQL/PostgreSQL/Oracle DB를 브라우저로 조회·실행할 수 있게 해주는 가벼운 셀프호스팅 도구입니다. Go 서버 하나가 DB 접근 권한이 있는 위치에서 상시 구동되고, 사용자는 브라우저로 접속해 사용합니다.
+사내망 등 폐쇄망에서 MSSQL/MySQL/PostgreSQL/Oracle DB를 브라우저로 조회·실행할 수 있게 해주는 가벼운 셀프호스팅 도구입니다. Go 서버 하나가 DB 접근 권한이 있는 위치에서 상시 구동되고, 사용자는 브라우저 또는 Electron 클라이언트로 접속해 사용합니다.
 
 ## 왜 만들었나
 
@@ -150,6 +150,18 @@ $env:DBTOOL_JWT_SECRET="dev-secret"; $env:DBTOOL_SQLITE_PATH="dev.sqlite"; $env:
 cd client
 npm run dev
 ```
+
+### (선택) Electron 클라이언트로 접속
+
+브라우저 대신 데스크톱 프로그램 형태로 접속하고 싶다면 `electron/`의 얇은 클라이언트를 쓸 수 있습니다. 서버를 내장하지 않고 이미 떠 있는 서버에 접속만 하는 셸입니다 ([ADR 0010](docs/adr/0010-electron-thin-client-shell.md), [CONTEXT.md](CONTEXT.md) 참고).
+
+```bash
+cd electron
+npm install
+npm start   # 처음 실행이면 서버 주소를 입력하는 창이 뜹니다
+```
+
+Windows용 설치 파일을 만들려면 `npm run build`(electron-builder)를 실행하세요. `electron/dist/`에 결과물이 생성됩니다.
 
 ## 주요 기능
 
