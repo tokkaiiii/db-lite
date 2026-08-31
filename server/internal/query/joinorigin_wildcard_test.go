@@ -30,10 +30,14 @@ func TestPrepareJoinOrigins_BareStarAcrossJoinFailsOpenWithoutSchema_AllDialects
 	}
 }
 
-// TestPrepareJoinOrigins_QualifiedStarAcrossJoinBailsOut_AllDialects
-// documents that `alias.*` (as opposed to a bare whole-list `*`) stays
-// unsupported — see prepareJoinOriginsMySQL's wildcard guard.
-func TestPrepareJoinOrigins_QualifiedStarAcrossJoinBailsOut_AllDialects(t *testing.T) {
+// TestPrepareJoinOrigins_MixedWildcardFailsOpenWithoutSchema_AllDialects
+// exercises a mixed select list (`alias.*` plus an explicit column) — like
+// the bare-star test above, this SQLite-backed DB can't run any dialect's
+// schema-lookup query, so expandWildcardOrigins fails and the whole
+// statement's origin tracking is abandoned (ok=false, statement
+// untouched). Real-schema verification (Docker) of the success path is in
+// docs/adr/0011.
+func TestPrepareJoinOrigins_MixedWildcardFailsOpenWithoutSchema_AllDialects(t *testing.T) {
 	db := newTestDB(t)
 	stmt := `SELECT u.*, o.total FROM users u JOIN orders o ON u.id = o.user_id`
 	for _, kind := range []store.DBKind{store.DBKindMySQL, store.DBKindPostgres, store.DBKindMSSQL, store.DBKindOracle} {

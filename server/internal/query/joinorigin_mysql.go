@@ -59,44 +59,48 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return stmt, nil, false
 	}
 
-	if len(sel.SelectExprs) == 1 {
-		if star, isStar := sel.SelectExprs[0].(*sqlparser.StarExpr); isStar && star.TableName.IsEmpty() {
-			// A bare (unqualified) `SELECT *` across the whole FROM: no
-			// rewrite needed at all, since SQL's `*` expansion order is
-			// well-defined — see expandWildcardOrigins.
-			tables := make([]string, len(order))
-			for i, alias := range order {
-				ref := aliasToRef[alias]
-				if ref.Derived != nil {
-					return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
-				}
-				tables[i] = ref.Table
-			}
-			wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
-			if !wildcardOK {
+	// Phase 1: figure out each select-list item's physical width (1 for a
+	// plain column or anything else; the referenced table's real column
+	// count for a wildcard) and, for wildcard items, their fully-resolved
+	// origin block up front — see expandWildcardOrigins. A wildcard on a
+	// derived table, or one whose schema can't be looked up, bails the
+	// whole statement: after that point nothing later in the list can be
+	// positioned correctly either.
+	starts := make([]int, len(sel.SelectExprs))
+	blocks := make([][]*ColumnOrigin, len(sel.SelectExprs))
+	pos := 0
+	for i, se := range sel.SelectExprs {
+		starts[i] = pos
+		star, isStar := se.(*sqlparser.StarExpr)
+		if !isStar {
+			pos++
+			continue
+		}
+		var tables []string
+		if !star.TableName.IsEmpty() {
+			ref, known := aliasToRef[star.TableName.Name.String()]
+			if !known || ref.Derived != nil {
 				return stmt, nil, false
 			}
-			return stmt, wildcardOrigins, true
+			tables = []string{ref.Table}
+		} else {
+			tables = make([]string, len(order))
+			for j, alias := range order {
+				ref := aliasToRef[alias]
+				if ref.Derived != nil {
+					return stmt, nil, false
+				}
+				tables[j] = ref.Table
+			}
 		}
-	}
-	for _, se := range sel.SelectExprs {
-		if _, isStar := se.(*sqlparser.StarExpr); isStar {
-			// `alias.*`, or `*` mixed with other columns, expands to
-			// however many real columns that table has, which this pass
-			// has no schema access to count in that shape — so
-			// len(sel.SelectExprs) can't be trusted as the number of
-			// physical result columns at all. Bailing out entirely (not
-			// just leaving this one column's origin nil) is required:
-			// treating it as "one untraceable column" would silently
-			// truncate every OTHER column in the actual result too (found
-			// live — `SELECT * FROM a JOIN b` was rendering only its
-			// first physical column, before the bare-`*` case above was
-			// handled specially).
+		block, ok := expandWildcardOrigins(db, kind, tables)
+		if !ok {
 			return stmt, nil, false
 		}
+		blocks[i] = block
+		pos += len(block)
 	}
-
-	visibleCount := len(sel.SelectExprs)
+	visibleCount := pos
 	origins = make([]*ColumnOrigin, visibleCount)
 	hiddenKeys := make([]string, visibleCount) // parallel to origins; hiddenIndex lookup key once known
 
@@ -128,10 +132,16 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return pk
 	}
 
+	// Phase 2: fill in origins — wildcard items from their precomputed
+	// block, everything else via the existing per-column resolution.
 	for i, se := range sel.SelectExprs {
+		if blocks[i] != nil {
+			copy(origins[starts[i]:], blocks[i])
+			continue
+		}
 		aliasedExpr, isAliased := se.(*sqlparser.AliasedExpr)
 		if !isAliased {
-			continue // *StarExpr or anything else: origin stays unknown (nil)
+			continue // anything else: origin stays unknown (nil)
 		}
 		colName, isCol := aliasedExpr.Expr.(*sqlparser.ColName)
 		if !isCol || colName.Qualifier.IsEmpty() {
@@ -142,6 +152,7 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		if !known {
 			continue
 		}
+		colPos := starts[i]
 
 		if ref.Derived == nil {
 			pk := lookupPK(ref.Table)
@@ -153,8 +164,8 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 				tableNeeded[key] = true
 				needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: ref.Table, pkCols: pk})
 			}
-			origins[i] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
-			hiddenKeys[i] = key
+			origins[colPos] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
+			hiddenKeys[colPos] = key
 			continue
 		}
 
@@ -171,8 +182,8 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 			tableNeeded[key] = true
 			needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: table, pkCols: pk, derived: ref.Derived, innerAlias: innerAlias})
 		}
-		origins[i] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
-		hiddenKeys[i] = key
+		origins[colPos] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
+		hiddenKeys[colPos] = key
 	}
 
 	if len(needed) == 0 {
@@ -231,7 +242,13 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	}
 
 	for i := range origins[:visibleCount] {
-		if origins[i] == nil {
+		if origins[i] == nil || hiddenKeys[i] == "" {
+			// A wildcard-block position (blocks[i] != nil in phase 2)
+			// never sets hiddenKeys — its PrimaryKeyRowIndexes was already
+			// filled in correctly by expandWildcardOrigins, pointing at
+			// the PK's own position inside that same block. Only
+			// positions phase 2 resolved via a real hiddenNeed (always a
+			// non-empty key) get their indexes from here.
 			continue
 		}
 		origins[i].PrimaryKeyRowIndexes = hiddenIndex[hiddenKeys[i]]

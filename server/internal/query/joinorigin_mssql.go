@@ -48,38 +48,47 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return stmt, nil, false
 	}
 
-	if len(sel.Columns) == 1 && sel.Columns[0].AllColumns {
-		// A bare (unqualified) `SELECT *` across the whole FROM: no
-		// rewrite needed at all, since SQL's `*` expansion order is
-		// well-defined — see expandWildcardOrigins.
-		tables := make([]string, len(order))
-		for i, alias := range order {
-			ref := aliasToRef[alias]
-			if ref.Derived != nil {
-				return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
+	// Phase 1: figure out each select-list item's physical width (1 for a
+	// plain column or anything else; the referenced table's real column
+	// count for a wildcard) and, for wildcard items, their fully-resolved
+	// origin block up front — see expandWildcardOrigins. A wildcard on a
+	// derived table, or one whose schema can't be looked up, bails the
+	// whole statement: after that point nothing later in the list can be
+	// positioned correctly either.
+	starts := make([]int, len(sel.Columns))
+	blocks := make([][]*ColumnOrigin, len(sel.Columns))
+	pos := 0
+	for i, col := range sel.Columns {
+		starts[i] = pos
+		if !mssqlColumnIsWildcard(col) {
+			pos++
+			continue
+		}
+		var tables []string
+		if qi, isQualified := col.Expression.(*ast.QualifiedIdentifier); isQualified {
+			ref, known := aliasToRef[qi.Parts[0].Value]
+			if !known || ref.Derived != nil {
+				return stmt, nil, false
 			}
-			tables[i] = ref.Table
+			tables = []string{ref.Table}
+		} else {
+			tables = make([]string, len(order))
+			for j, alias := range order {
+				ref := aliasToRef[alias]
+				if ref.Derived != nil {
+					return stmt, nil, false
+				}
+				tables[j] = ref.Table
+			}
 		}
-		wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
-		if !wildcardOK {
+		block, ok := expandWildcardOrigins(db, kind, tables)
+		if !ok {
 			return stmt, nil, false
 		}
-		return stmt, wildcardOrigins, true
+		blocks[i] = block
+		pos += len(block)
 	}
-	for _, col := range sel.Columns {
-		if mssqlColumnIsWildcard(col) {
-			// `alias.*`, or `*` mixed with other columns, expands to
-			// however many real columns that table has, which this pass
-			// has no schema access to count in that shape — so
-			// len(sel.Columns) can't be trusted as the number of physical
-			// result columns at all. Bailing out entirely (not just
-			// leaving this one column's origin nil) is required — see
-			// the MySQL pass's version of this same guard.
-			return stmt, nil, false
-		}
-	}
-
-	visibleCount := len(sel.Columns)
+	visibleCount := pos
 	origins = make([]*ColumnOrigin, visibleCount)
 	hiddenKeys := make([]string, visibleCount)
 
@@ -107,9 +116,15 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return pk
 	}
 
+	// Phase 2: fill in origins — wildcard items from their precomputed
+	// block, everything else via the existing per-column resolution.
 	for i, col := range sel.Columns {
-		if col.AllColumns || col.Variable != nil {
-			continue // `*`/`alias.*` or `@var = expr`: not a single traceable column
+		if blocks[i] != nil {
+			copy(origins[starts[i]:], blocks[i])
+			continue
+		}
+		if col.Variable != nil {
+			continue // `@var = expr`: not a single traceable column
 		}
 		qi, isQualified := col.Expression.(*ast.QualifiedIdentifier)
 		if !isQualified || len(qi.Parts) != 2 {
@@ -120,6 +135,7 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		if !known {
 			continue
 		}
+		colPos := starts[i]
 
 		if ref.Derived == nil {
 			pk := lookupPK(ref.Table)
@@ -131,8 +147,8 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 				tableNeeded[key] = true
 				needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: ref.Table, pkCols: pk})
 			}
-			origins[i] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
-			hiddenKeys[i] = key
+			origins[colPos] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
+			hiddenKeys[colPos] = key
 			continue
 		}
 
@@ -149,8 +165,8 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 			tableNeeded[key] = true
 			needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: table, pkCols: pk, derived: ref.Derived, innerAlias: innerAlias})
 		}
-		origins[i] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
-		hiddenKeys[i] = key
+		origins[colPos] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
+		hiddenKeys[colPos] = key
 	}
 
 	if len(needed) == 0 {
@@ -197,7 +213,13 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	}
 
 	for i := range origins[:visibleCount] {
-		if origins[i] == nil {
+		if origins[i] == nil || hiddenKeys[i] == "" {
+			// A wildcard-block position (blocks[i] != nil in phase 2)
+			// never sets hiddenKeys — its PrimaryKeyRowIndexes was already
+			// filled in correctly by expandWildcardOrigins, pointing at
+			// the PK's own position inside that same block. Only
+			// positions phase 2 resolved via a real hiddenNeed (always a
+			// non-empty key) get their indexes from here.
 			continue
 		}
 		origins[i].PrimaryKeyRowIndexes = hiddenIndex[hiddenKeys[i]]

@@ -50,46 +50,61 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 		return stmt, nil, false
 	}
 
-	if len(sel.TargetList) == 1 {
-		if colRef := sel.TargetList[0].GetResTarget().GetVal().GetColumnRef(); colRef != nil &&
-			len(colRef.Fields) == 1 && colRef.Fields[0].GetAStar() != nil {
-			// A bare (unqualified) `SELECT *` across the whole FROM: no
-			// rewrite needed at all, since SQL's `*` expansion order is
-			// well-defined — see expandWildcardOrigins.
-			tables := make([]string, len(order))
-			for i, alias := range order {
-				ref := aliasToRef[alias]
-				if ref.Derived != nil {
-					return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
-				}
-				tables[i] = ref.Table
-			}
-			wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
-			if !wildcardOK {
-				return stmt, nil, false
-			}
-			return stmt, wildcardOrigins, true
-		}
-	}
-	for _, item := range sel.TargetList {
-		if colRef := item.GetResTarget().GetVal().GetColumnRef(); colRef != nil {
+	// Phase 1: figure out each select-list item's physical width (1 for a
+	// plain column or anything else; the referenced table's real column
+	// count for a wildcard) and, for wildcard items, their fully-resolved
+	// origin block up front — see expandWildcardOrigins. A wildcard on a
+	// derived table, or one whose schema can't be looked up, bails the
+	// whole statement: after that point nothing later in the list can be
+	// positioned correctly either.
+	starts := make([]int, len(sel.TargetList))
+	blocks := make([][]*ColumnOrigin, len(sel.TargetList))
+	pos := 0
+	for i, item := range sel.TargetList {
+		starts[i] = pos
+		colRef := item.GetResTarget().GetVal().GetColumnRef()
+		isStar := false
+		if colRef != nil {
 			for _, f := range colRef.Fields {
 				if f.GetAStar() != nil {
-					// `alias.*`, or `*` mixed with other columns, expands
-					// to however many real columns that table has, which
-					// this pass has no schema access to count in that
-					// shape — so len(sel.TargetList) can't be trusted as
-					// the number of physical result columns at all.
-					// Bailing out entirely (not just leaving this one
-					// column's origin nil) is required — see the MySQL
-					// pass's version of this same guard.
-					return stmt, nil, false
+					isStar = true
+					break
 				}
 			}
 		}
+		if !isStar {
+			pos++
+			continue
+		}
+		var tables []string
+		if len(colRef.Fields) == 2 {
+			qualifier := colRef.Fields[0].GetString_()
+			if qualifier == nil {
+				return stmt, nil, false
+			}
+			ref, known := aliasToRef[qualifier.Sval]
+			if !known || ref.Derived != nil {
+				return stmt, nil, false
+			}
+			tables = []string{ref.Table}
+		} else {
+			tables = make([]string, len(order))
+			for j, alias := range order {
+				ref := aliasToRef[alias]
+				if ref.Derived != nil {
+					return stmt, nil, false
+				}
+				tables[j] = ref.Table
+			}
+		}
+		block, ok := expandWildcardOrigins(db, kind, tables)
+		if !ok {
+			return stmt, nil, false
+		}
+		blocks[i] = block
+		pos += len(block)
 	}
-
-	visibleCount := len(sel.TargetList)
+	visibleCount := pos
 	origins = make([]*ColumnOrigin, visibleCount)
 	hiddenKeys := make([]string, visibleCount)
 
@@ -117,25 +132,32 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 		return pk
 	}
 
+	// Phase 2: fill in origins — wildcard items from their precomputed
+	// block, everything else via the existing per-column resolution.
 	for i, item := range sel.TargetList {
+		if blocks[i] != nil {
+			copy(origins[starts[i]:], blocks[i])
+			continue
+		}
 		resTarget := item.GetResTarget()
 		if resTarget == nil {
 			continue
 		}
 		colRef := resTarget.Val.GetColumnRef()
 		if colRef == nil || len(colRef.Fields) != 2 {
-			continue // unqualified/computed column, or `*`/`alias.*`: ambiguous or unsupported
+			continue // unqualified/computed column: ambiguous or unsupported
 		}
 		qualifier := colRef.Fields[0].GetString_()
 		column := colRef.Fields[1].GetString_()
 		if qualifier == nil || column == nil {
-			continue // second field is `*` (alias.*) — not a single traceable column
+			continue
 		}
 		outerAlias := qualifier.Sval
 		ref, known := aliasToRef[outerAlias]
 		if !known {
 			continue
 		}
+		colPos := starts[i]
 
 		if ref.Derived == nil {
 			pk := lookupPK(ref.Table)
@@ -147,8 +169,8 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 				tableNeeded[key] = true
 				needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: ref.Table, pkCols: pk})
 			}
-			origins[i] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
-			hiddenKeys[i] = key
+			origins[colPos] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
+			hiddenKeys[colPos] = key
 			continue
 		}
 
@@ -165,8 +187,8 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 			tableNeeded[key] = true
 			needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: table, pkCols: pk, derived: ref.Derived, innerAlias: innerAlias})
 		}
-		origins[i] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
-		hiddenKeys[i] = key
+		origins[colPos] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
+		hiddenKeys[colPos] = key
 	}
 
 	if len(needed) == 0 {
@@ -209,7 +231,13 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 	}
 
 	for i := range origins[:visibleCount] {
-		if origins[i] == nil {
+		if origins[i] == nil || hiddenKeys[i] == "" {
+			// A wildcard-block position (blocks[i] != nil in phase 2)
+			// never sets hiddenKeys — its PrimaryKeyRowIndexes was already
+			// filled in correctly by expandWildcardOrigins, pointing at
+			// the PK's own position inside that same block. Only
+			// positions phase 2 resolved via a real hiddenNeed (always a
+			// non-empty key) get their indexes from here.
 			continue
 		}
 		origins[i].PrimaryKeyRowIndexes = hiddenIndex[hiddenKeys[i]]

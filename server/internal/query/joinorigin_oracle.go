@@ -134,7 +134,11 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 	if selectedList.ASTERISK() != nil {
 		// A bare (unqualified) `SELECT *` across the whole FROM: no
 		// rewrite needed at all, since SQL's `*` expansion order is
-		// well-defined — see expandWildcardOrigins.
+		// well-defined — see expandWildcardOrigins. Oracle's grammar
+		// (selected_list: '*' | select_list_elements (',' ...)*) only
+		// allows a bare `*` on its own, never mixed with other columns —
+		// unlike `alias.*`, which is handled below as one element among
+		// several.
 		tables := make([]string, len(order))
 		for i, alias := range order {
 			ref := aliasToRef[alias]
@@ -151,22 +155,40 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 	}
 
 	elements := selectedList.AllSelect_list_elements()
-	visibleCount := len(elements)
-	if visibleCount == 0 {
+	if len(elements) == 0 {
 		return stmt, nil, false
 	}
-	for _, elem := range elements {
-		if elem.Table_wild() != nil {
-			// `alias.*` expands to however many real columns that table
-			// has, which this pass has no schema access to count — so
-			// visibleCount can't be trusted as the number of physical
-			// result columns at all if any element is a wildcard.
-			// Bailing out entirely (not just leaving this one column's
-			// origin nil) is required — see the MySQL pass's version of
-			// this same guard.
+
+	// Phase 1: figure out each select-list element's physical width (1 for
+	// a plain column or anything else; the referenced table's real column
+	// count for `alias.*`) and, for wildcard elements, their
+	// fully-resolved origin block up front — see expandWildcardOrigins. A
+	// wildcard on a derived table, or one whose schema can't be looked up,
+	// bails the whole statement: after that point nothing later in the
+	// list can be positioned correctly either.
+	starts := make([]int, len(elements))
+	blocks := make([][]*ColumnOrigin, len(elements))
+	pos := 0
+	for i, elem := range elements {
+		starts[i] = pos
+		wild := elem.Table_wild()
+		if wild == nil {
+			pos++
+			continue
+		}
+		alias := oracleTableWildAlias(wild)
+		ref, known := aliasToRef[alias]
+		if !known || ref.Derived != nil {
 			return stmt, nil, false
 		}
+		block, ok := expandWildcardOrigins(db, kind, []string{ref.Table})
+		if !ok {
+			return stmt, nil, false
+		}
+		blocks[i] = block
+		pos += len(block)
 	}
+	visibleCount := pos
 	origins = make([]*ColumnOrigin, visibleCount)
 	hiddenKeys := make([]string, visibleCount)
 
@@ -194,9 +216,12 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 		return pk
 	}
 
+	// Phase 2: fill in origins — wildcard elements from their precomputed
+	// block, everything else via the existing per-column resolution.
 	for i, elem := range elements {
-		if elem.Table_wild() != nil {
-			continue // `alias.*`: not a single traceable column
+		if blocks[i] != nil {
+			copy(origins[starts[i]:], blocks[i])
+			continue
 		}
 		ge := unwrapGeneralElementOracle(elem.Expression())
 		if ge == nil || len(ge.AllGeneral_element_part()) != 2 {
@@ -211,6 +236,7 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 		if !known {
 			continue
 		}
+		colPos := starts[i]
 
 		if ref.Derived == nil {
 			pk := lookupPK(ref.Table)
@@ -222,8 +248,8 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 				tableNeeded[key] = true
 				needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: ref.Table, pkCols: pk})
 			}
-			origins[i] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
-			hiddenKeys[i] = key
+			origins[colPos] = &ColumnOrigin{Table: ref.Table, PrimaryKeyColumns: pk}
+			hiddenKeys[colPos] = key
 			continue
 		}
 
@@ -241,8 +267,8 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 			tableNeeded[key] = true
 			needed = append(needed, hiddenNeed{outerAlias: outerAlias, table: table, pkCols: pk, derived: ref.Derived, innerAlias: innerAlias})
 		}
-		origins[i] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
-		hiddenKeys[i] = key
+		origins[colPos] = &ColumnOrigin{Table: table, PrimaryKeyColumns: pk}
+		hiddenKeys[colPos] = key
 	}
 
 	if len(needed) == 0 {
@@ -292,7 +318,13 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 	}
 
 	for i := range origins[:visibleCount] {
-		if origins[i] == nil {
+		if origins[i] == nil || hiddenKeys[i] == "" {
+			// A wildcard-block position (blocks[i] != nil in phase 2)
+			// never sets hiddenKeys — its PrimaryKeyRowIndexes was already
+			// filled in correctly by expandWildcardOrigins, pointing at
+			// the PK's own position inside that same block. Only
+			// positions phase 2 resolved via a real hiddenNeed (always a
+			// non-empty key) get their indexes from here.
 			continue
 		}
 		origins[i].PrimaryKeyRowIndexes = hiddenIndex[hiddenKeys[i]]
@@ -416,6 +448,18 @@ func unwrapGeneralElementOracle(expr plsqlparser.IExpressionContext) *plsqlparse
 		}
 		n = prc.GetChild(0)
 	}
+}
+
+// oracleTableWildAlias extracts the alias from an `alias.*` select-list
+// element (table_wild: tableview_name '.' ASTERISK) — the alias is the
+// last identifier part before the dot, same as a plain table reference's
+// bare name (see collectJoinTablesOracle).
+func oracleTableWildAlias(wild plsqlparser.ITable_wildContext) string {
+	tv := wild.Tableview_name()
+	if tv.Id_expression() != nil {
+		return oracleUnquote(tv.Id_expression().GetText())
+	}
+	return oracleUnquote(tv.Identifier().GetText())
 }
 
 // oracleUnquote strips the double quotes from a delimited identifier
