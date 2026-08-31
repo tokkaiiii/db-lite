@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { EditorView, keymap } from '@codemirror/view'
-import { Prec, type EditorState } from '@codemirror/state'
+import { Prec, type EditorState, type Extension } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import { acceptCompletion, type Completion } from '@codemirror/autocomplete'
 import { MSSQL, MySQL, PLSQL, PostgreSQL, sql, type SQLDialect, type SQLNamespace } from '@codemirror/lang-sql'
@@ -10,6 +10,8 @@ import { formatDialect, mysql as sqlFormatterMysql, plsql, postgresql, transacts
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
 import { ApiError } from '../api/client'
+import { PrototypeSwitcher } from '../components/PrototypeSwitcher'
+import './queryPagePrototype.css'
 
 // PLSQL is the closest lang-sql dialect to Oracle's SQL flavor.
 const DIALECTS: Record<DBKind, SQLDialect> = {
@@ -106,10 +108,29 @@ function completeCurrentStatement(view: EditorView) {
   return true
 }
 
+// PROTOTYPE — DataGrip 스타일 방향 탐색용 variant 키. 방향이 정해지면
+// VariantA/B/C와 이 타입, updateSearchParams의 variant 관련 부분을 지운다.
+type ProtoVariant = 'A' | 'B' | 'C'
+const PROTO_VARIANTS: readonly ProtoVariant[] = ['A', 'B', 'C']
+const PROTO_LABELS: Record<ProtoVariant, string> = {
+  A: '사이드바 트리 (라이트)',
+  B: '다크 + 쿼리 탭',
+  C: '다크 + 플로팅 툴바',
+}
+
 export function QueryPage() {
   const { connectionId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const catalog = searchParams.get('catalog') ?? ''
+  const variant = (searchParams.get('variant') as ProtoVariant | null) ?? 'A'
+
+  // 기존 setSearchParams({ catalog: ... }) 호출이 전체 파라미터를 덮어써
+  // variant가 URL에서 사라지던 것을 막기 위한 prototype용 병합 헬퍼.
+  function updateSearchParams(patch: Record<string, string>, opts?: { replace?: boolean }) {
+    const next = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(patch)) next.set(k, v)
+    setSearchParams(next, opts)
+  }
 
   const editorRef = useRef<ReactCodeMirrorRef>(null)
   const [kind, setKind] = useState<DBKind | null>(null)
@@ -139,7 +160,7 @@ export function QueryPage() {
         // Every DB kind that has a Catalog concept needs one to connect to,
         // so default to the first one rather than leaving the picker empty.
         if (catalogs.length > 0 && !searchParams.get('catalog')) {
-          setSearchParams({ catalog: catalogs[0] }, { replace: true })
+          updateSearchParams({ catalog: catalogs[0] }, { replace: true })
         }
         setCatalogsLoaded(true)
       })
@@ -245,64 +266,68 @@ export function QueryPage() {
     [kind, cmSchema],
   )
 
+  const variantProps: VariantProps = {
+    connectionId,
+    kind,
+    catalogs,
+    catalog,
+    onCatalogChange: (v) => updateSearchParams({ catalog: v }),
+    schema,
+    editorRef,
+    statement,
+    setStatement,
+    extensions,
+    run,
+    running,
+    formatEditor,
+    onCompleteStatement: () => {
+      const view = editorRef.current?.view
+      if (view) completeCurrentStatement(view)
+    },
+    loadSchema,
+    error,
+    result,
+  }
+
   return (
-    <div>
-      <h1>쿼리 실행 (Connection #{connectionId})</h1>
-      {catalogs.length > 0 && (
-        <div>
-          <label>
-            Catalog:{' '}
-            <select
-              value={catalog}
-              onChange={(e) => setSearchParams({ catalog: e.target.value })}
-            >
-              {catalogs.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-      <CodeMirror
-        ref={editorRef}
-        value={statement}
-        height="500px"
-        extensions={extensions}
-        onChange={setStatement}
+    <>
+      {variant === 'B' && <VariantB {...variantProps} />}
+      {variant === 'C' && <VariantC {...variantProps} />}
+      {variant !== 'B' && variant !== 'C' && <VariantA {...variantProps} />}
+      <PrototypeSwitcher
+        variants={PROTO_VARIANTS}
+        labels={PROTO_LABELS}
+        current={variant}
+        onChange={(v) => updateSearchParams({ variant: v })}
       />
-      <div>
-        <button onClick={run} disabled={running} title="Ctrl/Cmd+Enter">
-          실행
-        </button>
-        <button type="button" onClick={formatEditor} title="Ctrl/Cmd+Alt+L">
-          포맷팅
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const view = editorRef.current?.view
-            if (view) completeCurrentStatement(view)
-          }}
-          title="Ctrl/Cmd+Shift+Enter"
-        >
-          문장 완성(;)
-        </button>
-        <button type="button" onClick={loadSchema}>
-          스키마 새로고침
-        </button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {result && (
-        <QueryResultView
-          result={result}
-          connectionId={connectionId ? Number(connectionId) : undefined}
-          catalog={catalog}
-        />
-      )}
-    </div>
+    </>
   )
+}
+
+// ---------------------------------------------------------------------------
+// PROTOTYPE — DataGrip 스타일 방향 탐색용 세 가지 variant. 방향이 정해지면
+// 승자만 남기고 이 구역(useCellDownload 제외)과 queryPagePrototype.css,
+// PrototypeSwitcher.tsx를 지운다.
+// ---------------------------------------------------------------------------
+
+type VariantProps = {
+  connectionId?: string
+  kind: DBKind | null
+  catalogs: string[]
+  catalog: string
+  onCatalogChange: (v: string) => void
+  schema: Record<string, string[]>
+  editorRef: RefObject<ReactCodeMirrorRef | null>
+  statement: string
+  setStatement: (v: string) => void
+  extensions: Extension[]
+  run: () => void
+  running: boolean
+  formatEditor: () => boolean
+  onCompleteStatement: () => void
+  loadSchema: () => void
+  error: string | null
+  result: QueryResult | null
 }
 
 // canDownloadCell mirrors the ADR 0009 gate: the server only fills in
@@ -312,24 +337,11 @@ function canDownloadCell(connectionId: number | undefined, result: QueryResult):
   return connectionId !== undefined && !!result.table && !!result.primaryKey?.length
 }
 
-function QueryResultView({
-  result,
-  connectionId,
-  catalog,
-}: {
-  result: QueryResult
-  connectionId?: number
-  catalog: string
-}) {
-  if (result.rowsAffected !== undefined && !result.columns) {
-    return <p>{result.rowsAffected}행이 영향을 받았습니다.</p>
-  }
-  if (!result.columns || !result.rows) {
-    return <p>결과가 없습니다.</p>
-  }
-
-  const columns = result.columns
+// 세 variant가 공유하는 "셀 원본 다운로드" 로직 — 레이아웃(JSX)은 각
+// variant가 따로 그리되, 다운로드 판단/요청 로직만 공유한다.
+function useCellDownload(connectionId: number | undefined, catalog: string, result: QueryResult) {
   const downloadEnabled = canDownloadCell(connectionId, result)
+  const columns = result.columns ?? []
   const pkIndexes = downloadEnabled ? result.primaryKey!.map((pk) => columns.indexOf(pk)) : []
 
   async function downloadCell(row: unknown[], column: string) {
@@ -344,13 +356,97 @@ function QueryResultView({
     }
   }
 
+  return { downloadEnabled, downloadCell }
+}
+
+function CatalogPicker({ catalogs, catalog, onCatalogChange }: Pick<VariantProps, 'catalogs' | 'catalog' | 'onCatalogChange'>) {
+  if (catalogs.length === 0) return null
   return (
-    <div>
-      {result.truncated && <p className="warning">결과가 최대 행 수로 잘렸습니다.</p>}
+    <select value={catalog} onChange={(e) => onCatalogChange(e.target.value)}>
+      {catalogs.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+// ---------- Variant A: 라이트 + 왼쪽 스키마 트리 ----------
+function VariantA(props: VariantProps) {
+  const { connectionId, catalogs, catalog, onCatalogChange, schema, editorRef, statement, setStatement, extensions, run, running, formatEditor, onCompleteStatement, loadSchema, error, result } = props
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  function toggle(table: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(table)) next.delete(table)
+      else next.add(table)
+      return next
+    })
+  }
+
+  return (
+    <div className="proto-a">
+      <aside className="proto-a-sidebar">
+        <div className="proto-a-sidebar-title">Connection #{connectionId}</div>
+        {Object.entries(schema).map(([table, columns]) => (
+          <div key={table}>
+            <div className="proto-a-table-row" onClick={() => toggle(table)}>
+              {expanded.has(table) ? '▾' : '▸'} {table}
+            </div>
+            {expanded.has(table) &&
+              columns.map((col) => (
+                <div key={col} className="proto-a-column-row proto-mono">
+                  {col}
+                </div>
+              ))}
+          </div>
+        ))}
+        <div style={{ padding: '0.4rem 0.6rem' }}>
+          <button type="button" onClick={loadSchema}>
+            새로고침
+          </button>
+        </div>
+      </aside>
+      <div className="proto-a-main">
+        <div className="proto-a-toolbar">
+          <button className="run" onClick={run} disabled={running} title="Ctrl/Cmd+Enter">
+            ▶ 실행
+          </button>
+          <button type="button" onClick={formatEditor} title="Ctrl/Cmd+Alt+L">
+            포맷팅
+          </button>
+          <button type="button" onClick={onCompleteStatement} title="Ctrl/Cmd+Shift+Enter">
+            문장 완성(;)
+          </button>
+          {catalogs.length > 0 && <CatalogPicker catalogs={catalogs} catalog={catalog} onCatalogChange={onCatalogChange} />}
+        </div>
+        <div className="proto-a-editor">
+          <CodeMirror ref={editorRef} value={statement} height="280px" extensions={extensions} onChange={setStatement} />
+        </div>
+        <div className="proto-a-results">
+          {error && <p className="error">{error}</p>}
+          {result && <ResultTableA result={result} connectionId={connectionId ? Number(connectionId) : undefined} catalog={catalog} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResultTableA({ result, connectionId, catalog }: { result: QueryResult; connectionId?: number; catalog: string }) {
+  if (result.rowsAffected !== undefined && !result.columns) return <p style={{ padding: '0.6rem' }}>{result.rowsAffected}행이 영향을 받았습니다.</p>
+  if (!result.columns || !result.rows) return <p style={{ padding: '0.6rem' }}>결과가 없습니다.</p>
+  const { downloadEnabled, downloadCell } = useCellDownload(connectionId, catalog, result)
+
+  return (
+    <>
+      {result.truncated && <p className="warning" style={{ padding: '0 0.6rem' }}>결과가 최대 행 수로 잘렸습니다.</p>}
       <table>
         <thead>
           <tr>
-            {columns.map((c) => (
+            <th className="rownum">#</th>
+            {result.columns.map((c) => (
               <th key={c}>{c}</th>
             ))}
           </tr>
@@ -358,16 +454,12 @@ function QueryResultView({
         <tbody>
           {result.rows.map((row, i) => (
             <tr key={i}>
+              <td className="rownum">{i + 1}</td>
               {row.map((cell, j) => (
-                <td key={j}>
+                <td key={j} className="proto-mono">
                   {cell === null ? 'NULL' : String(cell)}
                   {downloadEnabled && (
-                    <button
-                      type="button"
-                      className="cell-download"
-                      title="원본 값 다운로드"
-                      onClick={() => downloadCell(row, columns[j])}
-                    >
+                    <button type="button" className="cell-download" title="원본 값 다운로드" onClick={() => downloadCell(row, result.columns![j])}>
                       ⬇
                     </button>
                   )}
@@ -377,6 +469,160 @@ function QueryResultView({
           ))}
         </tbody>
       </table>
+    </>
+  )
+}
+
+// ---------- Variant B: 다크 + 쿼리 탭 ----------
+function VariantB(props: VariantProps) {
+  const { connectionId, catalogs, catalog, onCatalogChange, editorRef, statement, setStatement, extensions, run, running, formatEditor, onCompleteStatement, loadSchema, error, result } = props
+
+  return (
+    <div className="proto-b">
+      <div className="proto-b-tabs">
+        <div className="proto-b-tab active proto-mono">Query 1</div>
+        <div className="proto-b-tab">+</div>
+      </div>
+      <div className="proto-b-toolbar">
+        <button className="run" onClick={run} disabled={running} title="Ctrl/Cmd+Enter">
+          ▶ 실행
+        </button>
+        <button type="button" onClick={formatEditor} title="Ctrl/Cmd+Alt+L">
+          포맷팅
+        </button>
+        <button type="button" onClick={onCompleteStatement} title="Ctrl/Cmd+Shift+Enter">
+          문장 완성(;)
+        </button>
+        <button type="button" onClick={loadSchema}>
+          스키마 새로고침
+        </button>
+        {catalogs.length > 0 && <CatalogPicker catalogs={catalogs} catalog={catalog} onCatalogChange={onCatalogChange} />}
+      </div>
+      <CodeMirror ref={editorRef} value={statement} height="260px" theme="dark" extensions={extensions} onChange={setStatement} />
+      <div className="proto-b-results">
+        {error && <p className="error" style={{ padding: '0.5rem' }}>{error}</p>}
+        {result && <ResultTableB result={result} connectionId={connectionId ? Number(connectionId) : undefined} catalog={catalog} />}
+      </div>
+      <div className="proto-b-status proto-mono">
+        {result?.truncated ? '결과가 최대 행 수로 잘렸습니다.' : result ? `${result.rows?.length ?? result.rowsAffected ?? 0}행` : '대기 중'}
+      </div>
     </div>
   )
 }
+
+function ResultTableB({ result, connectionId, catalog }: { result: QueryResult; connectionId?: number; catalog: string }) {
+  if (result.rowsAffected !== undefined && !result.columns) return <p style={{ padding: '0.6rem' }}>{result.rowsAffected}행이 영향을 받았습니다.</p>
+  if (!result.columns || !result.rows) return <p style={{ padding: '0.6rem' }}>결과가 없습니다.</p>
+  const { downloadEnabled, downloadCell } = useCellDownload(connectionId, catalog, result)
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          {result.columns.map((c) => (
+            <th key={c} className="proto-mono">
+              {c}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {result.rows.map((row, i) => (
+          <tr key={i}>
+            {row.map((cell, j) => (
+              <td key={j} className="proto-mono">
+                {cell === null ? 'NULL' : String(cell)}
+                {downloadEnabled && (
+                  <button type="button" className="cell-download" title="원본 값 다운로드" onClick={() => downloadCell(row, result.columns![j])}>
+                    ⬇
+                  </button>
+                )}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// ---------- Variant C: 다크 + 사이드바 없음 + 플로팅 툴바 ----------
+function VariantC(props: VariantProps) {
+  const { connectionId, catalogs, catalog, onCatalogChange, editorRef, statement, setStatement, extensions, run, running, formatEditor, onCompleteStatement, loadSchema, error, result } = props
+
+  return (
+    <div className="proto-c">
+      <div className="proto-c-breadcrumb proto-mono">
+        Connection #{connectionId}
+        {catalogs.length > 0 && (
+          <>
+            {' / '}
+            <CatalogPicker catalogs={catalogs} catalog={catalog} onCatalogChange={onCatalogChange} />
+          </>
+        )}
+      </div>
+      <div className="proto-c-editor-wrap">
+        <div className="proto-c-floating-toolbar">
+          <button className="run" onClick={run} disabled={running} title="Ctrl/Cmd+Enter">
+            ▶
+          </button>
+          <button type="button" onClick={formatEditor} title="Ctrl/Cmd+Alt+L">
+            포맷
+          </button>
+          <button type="button" onClick={onCompleteStatement} title="Ctrl/Cmd+Shift+Enter">
+            ;
+          </button>
+          <button type="button" onClick={loadSchema}>
+            ↻
+          </button>
+        </div>
+        <CodeMirror ref={editorRef} value={statement} height="240px" theme="dark" extensions={extensions} onChange={setStatement} />
+      </div>
+      <div className="proto-c-results">
+        {error && <p className="error" style={{ padding: '0.5rem' }}>{error}</p>}
+        {result && <ResultTableC result={result} connectionId={connectionId ? Number(connectionId) : undefined} catalog={catalog} />}
+      </div>
+      <div className="proto-c-status proto-mono">
+        <span>{catalog || '-'}</span>
+        <span>{result?.truncated ? '결과 잘림' : result ? `${result.rows?.length ?? result.rowsAffected ?? 0}행` : '대기 중'}</span>
+      </div>
+    </div>
+  )
+}
+
+function ResultTableC({ result, connectionId, catalog }: { result: QueryResult; connectionId?: number; catalog: string }) {
+  if (result.rowsAffected !== undefined && !result.columns) return <p style={{ padding: '0.6rem' }}>{result.rowsAffected}행이 영향을 받았습니다.</p>
+  if (!result.columns || !result.rows) return <p style={{ padding: '0.6rem' }}>결과가 없습니다.</p>
+  const { downloadEnabled, downloadCell } = useCellDownload(connectionId, catalog, result)
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          {result.columns.map((c) => (
+            <th key={c} className="proto-mono">
+              {c}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {result.rows.map((row, i) => (
+          <tr key={i}>
+            {row.map((cell, j) => (
+              <td key={j} className="proto-mono">
+                {cell === null ? 'NULL' : String(cell)}
+                {downloadEnabled && (
+                  <button type="button" className="cell-download" title="원본 값 다운로드" onClick={() => downloadCell(row, result.columns![j])}>
+                    ⬇
+                  </button>
+                )}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+

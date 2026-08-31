@@ -1,0 +1,325 @@
+/* PROTOTYPE — DataGrip 스타일 방향 탐색용, 방향이 정해지면 지운다.
+   폐쇄망 배포 전제라 외부 폰트(CDN)는 쓰지 않고 시스템 모노스페이스만 사용. */
+
+.proto-mono {
+  font-family: ui-monospace, Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* ---------- Variant A: 라이트 + 왼쪽 스키마 트리 ---------- */
+.proto-a {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  border: 1px solid #c9c9c9;
+  background: #ffffff;
+  color: #1e1e1e;
+  height: 640px;
+}
+.proto-a-sidebar {
+  background: #f2f2f2;
+  border-right: 1px solid #c9c9c9;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+.proto-a-sidebar-title {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #6e6e6e;
+  letter-spacing: 0.04em;
+}
+.proto-a-table-row {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.proto-a-table-row:hover {
+  background: #e2e6ea;
+}
+.proto-a-column-row {
+  padding: 0.1rem 0.6rem 0.1rem 1.4rem;
+  font-size: 0.78rem;
+  color: #555;
+}
+.proto-a-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.proto-a-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #d8d8d8;
+  background: #f7f7f7;
+}
+.proto-a-toolbar button {
+  border: 1px solid #c9c9c9;
+  background: #ffffff;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.82rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.proto-a-toolbar button.run {
+  background: #2470b3;
+  color: white;
+  border-color: #1a5a94;
+  font-weight: 600;
+}
+.proto-a-toolbar select {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+.proto-a-editor {
+  border-bottom: 1px solid #d8d8d8;
+}
+.proto-a-results {
+  flex: 1;
+  overflow: auto;
+}
+.proto-a-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.proto-a-results th {
+  position: sticky;
+  top: 0;
+  background: #eef0f2;
+  border: 1px solid #d8d8d8;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+}
+.proto-a-results td {
+  border: 1px solid #e6e6e6;
+  padding: 0.25rem 0.5rem;
+}
+.proto-a-results .rownum {
+  background: #f2f2f2;
+  color: #999;
+  text-align: right;
+  width: 1%;
+  user-select: none;
+}
+.proto-a-results tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+/* ---------- Variant B: 다크 + 쿼리 탭 ---------- */
+.proto-b {
+  background: #2b2b2b;
+  color: #a9b7c6;
+  border: 1px solid #1e1e1e;
+  height: 640px;
+  display: flex;
+  flex-direction: column;
+}
+.proto-b-tabs {
+  display: flex;
+  background: #3c3f41;
+  border-bottom: 1px solid #232323;
+}
+.proto-b-tab {
+  padding: 0.4rem 1rem;
+  font-size: 0.82rem;
+  border-right: 1px solid #232323;
+  color: #8a8f93;
+}
+.proto-b-tab.active {
+  background: #2b2b2b;
+  color: #cfd6dd;
+  border-top: 2px solid #3574f0;
+}
+.proto-b-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: #3c3f41;
+  border-bottom: 1px solid #232323;
+}
+.proto-b-toolbar button {
+  border: 1px solid #4b4b4b;
+  background: #4b4f52;
+  color: #cfd6dd;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.proto-b-toolbar button.run {
+  background: #499c54;
+  border-color: #3a7d43;
+  color: white;
+  font-weight: 600;
+}
+.proto-b-toolbar select {
+  margin-left: auto;
+  background: #3c3f41;
+  color: #cfd6dd;
+  border: 1px solid #4b4b4b;
+  font-size: 0.8rem;
+}
+.proto-b .cm-editor {
+  border-bottom: 1px solid #232323;
+}
+.proto-b-results {
+  flex: 1;
+  overflow: auto;
+}
+.proto-b-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.proto-b-results th {
+  position: sticky;
+  top: 0;
+  background: #3c3f41;
+  color: #cfd6dd;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #232323;
+}
+.proto-b-results td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid #323232;
+}
+.proto-b-results tr:nth-child(even) td {
+  background: #313335;
+}
+.proto-b-results tr:hover td {
+  background: #214283;
+  color: white;
+}
+.proto-b-status {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: #3c3f41;
+  color: #8a8f93;
+  border-top: 1px solid #232323;
+}
+
+/* ---------- Variant C: 다크 + 사이드바 없음 + 플로팅 툴바 ---------- */
+.proto-c {
+  position: relative;
+  background: #1e1f22;
+  color: #bcbec4;
+  border: 1px solid #1a1b1d;
+  height: 640px;
+  display: flex;
+  flex-direction: column;
+}
+.proto-c-breadcrumb {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  color: #8a8d93;
+  border-bottom: 1px solid #2b2d30;
+}
+.proto-c-breadcrumb select {
+  background: transparent;
+  color: #bcbec4;
+  border: none;
+  font-size: 0.78rem;
+}
+.proto-c-editor-wrap {
+  position: relative;
+}
+.proto-c-floating-toolbar {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  z-index: 5;
+  display: flex;
+  gap: 0.3rem;
+  background: #2b2d30;
+  border: 1px solid #393b40;
+  border-radius: 999px;
+  padding: 0.25rem 0.4rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.proto-c-floating-toolbar button {
+  border: none;
+  background: transparent;
+  color: #bcbec4;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.proto-c-floating-toolbar button:hover {
+  background: #393b40;
+}
+.proto-c-floating-toolbar button.run {
+  background: #59a869;
+  color: #0d1f10;
+  font-weight: 700;
+}
+.proto-c-results {
+  flex: 1;
+  overflow: auto;
+}
+.proto-c-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.proto-c-results th {
+  position: sticky;
+  top: 0;
+  background: #2b2d30;
+  color: #bcbec4;
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+}
+.proto-c-results td {
+  padding: 0.22rem 0.6rem;
+  border-bottom: 1px solid #2b2d30;
+}
+.proto-c-results tr:hover td {
+  background: #2b2d30;
+}
+.proto-c-status {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  background: #2b2d30;
+  color: #8a8d93;
+  border-top: 1px solid #1a1b1d;
+}
+
+/* ---------- Floating variant switcher (모든 variant 공용) ---------- */
+.proto-switcher {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #1a1a1a;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  font-size: 0.85rem;
+}
+.proto-switcher button {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: white;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+.proto-switcher button:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
