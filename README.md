@@ -100,7 +100,7 @@ set DBTOOL_BOOTSTRAP_ADMIN_PASSWORD=바꾸세요
 dbtool.exe
 ```
 
-셸마다 문법이 달라 번거롭다면, 환경변수 대신 **`.env` 파일**을 쓸 수 있습니다. `dbtool`(또는 `dbtool.exe`)과 같은 디렉터리에 `.env` 파일을 두면 실행 시 자동으로 읽습니다(`server/.env.example` 참고). 이미 설정된 실제 환경변수가 있으면 그 값이 항상 우선합니다.
+셸마다 문법이 달라 번거롭다면, 환경변수 대신 **`.env` 파일**을 쓸 수 있습니다. **현재 작업 디렉터리(실행 시 `cd`한 위치, 바이너리 파일 위치가 아닙니다)**에 `.env` 파일을 두면 실행 시 자동으로 읽습니다(`server/.env.example` 참고). 다른 위치에서 절대경로로 실행하거나 Windows 서비스로 등록하는 등 작업 디렉터리가 바이너리 위치와 다르면 `.env`를 못 찾을 수 있으니, 이런 경우 `DBTOOL_ENV_FILE`로 경로를 직접 지정하세요. 이미 설정된 실제 환경변수가 있으면 그 값이 항상 우선합니다.
 
 ```
 # .env
@@ -132,8 +132,8 @@ VITE_API_PROXY_TARGET=http://localhost:9090
 macOS/Linux:
 
 ```bash
-# 터미널 1
-cd server && DBTOOL_JWT_SECRET=dev-secret DBTOOL_SQLITE_PATH=dev.sqlite go run ./cmd/server
+# 터미널 1 (포트를 바꾸지 않는다면 DBTOOL_LISTEN_ADDR는 생략 가능)
+cd server && DBTOOL_JWT_SECRET=dev-secret DBTOOL_SQLITE_PATH=dev.sqlite DBTOOL_LISTEN_ADDR=:9090 go run ./cmd/server
 
 # 터미널 2
 cd client && npm run dev
@@ -142,9 +142,9 @@ cd client && npm run dev
 Windows (PowerShell):
 
 ```powershell
-# 터미널 1
+# 터미널 1 (포트를 바꾸지 않는다면 DBTOOL_LISTEN_ADDR는 생략 가능)
 cd server
-$env:DBTOOL_JWT_SECRET="dev-secret"; $env:DBTOOL_SQLITE_PATH="dev.sqlite"; go run ./cmd/server
+$env:DBTOOL_JWT_SECRET="dev-secret"; $env:DBTOOL_SQLITE_PATH="dev.sqlite"; $env:DBTOOL_LISTEN_ADDR=":9090"; go run ./cmd/server
 
 # 터미널 2
 cd client
@@ -158,6 +158,8 @@ npm run dev
 - **Catalog 선택**: MySQL/Postgres/MSSQL은 하나의 Connection 안에 여러 데이터베이스가 있을 수 있어, 쿼리 실행 화면에서 어느 데이터베이스에 붙을지 드롭다운으로 고를 수 있습니다(`?catalog=` URL 파라미터로 유지). Oracle은 Connection의 서비스명이 이미 대상을 고정하므로 이 드롭다운이 뜨지 않습니다.
 - **Connection 수정**: 등록 후 오타를 발견해도 삭제 없이 바로 고칠 수 있습니다(그 Connection에 걸린 Permission이 그대로 유지됩니다). 비밀번호 입력란을 비워두면 기존 비밀번호가 유지됩니다.
 - **권한 현황 조회**: Permissions 화면에서 현재 누가 어떤 Connection에 어떤 권한을 가졌는지 목록으로 보고, 바로 회수할 수 있습니다.
+- **결과 행/셀 크기 제한**: SELECT 결과는 최대 1,000행까지만 내려받고, 그 이상은 잘렸다는 표시가 함께 옵니다. BLOB/XML처럼 큰 셀 값은 서버에서 2KB로 잘라 렌더링 지연을 줄입니다.
+- **셀 원본 값 다운로드**: PK가 있는 단일 테이블 `SELECT *` 조회 결과는 잘린 셀 값이라도 그 행을 클릭해 원본 그대로 파일로 내려받을 수 있습니다.
 
 ## 지원 DB
 
