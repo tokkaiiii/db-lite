@@ -43,18 +43,38 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return stmt, nil, false
 	}
 
-	aliasToRef, tablesOK := collectJoinTablesMSSQL(sel.From.Tables)
+	aliasToRef, order, tablesOK := collectJoinTablesMSSQL(sel.From.Tables)
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
+
+	if len(sel.Columns) == 1 && sel.Columns[0].AllColumns {
+		// A bare (unqualified) `SELECT *` across the whole FROM: no
+		// rewrite needed at all, since SQL's `*` expansion order is
+		// well-defined — see expandWildcardOrigins.
+		tables := make([]string, len(order))
+		for i, alias := range order {
+			ref := aliasToRef[alias]
+			if ref.Derived != nil {
+				return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
+			}
+			tables[i] = ref.Table
+		}
+		wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
+		if !wildcardOK {
+			return stmt, nil, false
+		}
+		return stmt, wildcardOrigins, true
+	}
 	for _, col := range sel.Columns {
 		if mssqlColumnIsWildcard(col) {
-			// `*` or `alias.*` expands to however many real columns that
-			// table has, which this pass has no schema access to count —
-			// so len(sel.Columns) can't be trusted as the number of
-			// physical result columns at all. Bailing out entirely (not
-			// just leaving this one column's origin nil) is required —
-			// see the MySQL pass's version of this same guard.
+			// `alias.*`, or `*` mixed with other columns, expands to
+			// however many real columns that table has, which this pass
+			// has no schema access to count in that shape — so
+			// len(sel.Columns) can't be trusted as the number of physical
+			// result columns at all. Bailing out entirely (not just
+			// leaving this one column's origin nil) is required — see
+			// the MySQL pass's version of this same guard.
 			return stmt, nil, false
 		}
 	}
@@ -219,7 +239,7 @@ func resolveDerivedColumnMSSQL(derived *ast.SelectStatement, outerColName string
 	if derived.From == nil {
 		return "", "", false
 	}
-	innerTables, tablesOK := collectJoinTablesMSSQL(derived.From.Tables)
+	innerTables, _, tablesOK := collectJoinTablesMSSQL(derived.From.Tables)
 	if !tablesOK {
 		return "", "", false
 	}
@@ -273,9 +293,11 @@ func resolveDerivedColumnMSSQL(derived *ast.SelectStatement, outerColName string
 // collectJoinTablesMSSQL walks a FROM clause made of table references
 // (optionally JOINed), mapping each alias (or bare table name when
 // unaliased) to what it refers to — a real table, or (one level deep) a
-// derived table. ok is false the moment it finds anything this narrow pass
-// doesn't understand, so the caller can bail out rather than guess.
-func collectJoinTablesMSSQL(tables []ast.TableReference) (map[string]mssqlTableRef, bool) {
+// derived table — and also returning those aliases in FROM order (needed
+// to expand a bare `SELECT *`; see expandWildcardOrigins). ok is false the
+// moment it finds anything this narrow pass doesn't understand, so the
+// caller can bail out rather than guess.
+func collectJoinTablesMSSQL(tables []ast.TableReference) (refs map[string]mssqlTableRef, order []string, ok bool) {
 	result := map[string]mssqlTableRef{}
 	var walk func(ast.TableReference) bool
 	walk = func(ref ast.TableReference) bool {
@@ -292,12 +314,14 @@ func collectJoinTablesMSSQL(tables []ast.TableReference) (map[string]mssqlTableR
 				alias = t.Alias.Value
 			}
 			result[alias] = mssqlTableRef{Table: bare}
+			order = append(order, alias)
 			return true
 		case *ast.DerivedTable:
 			if t.Subquery == nil || t.Subquery.Union != nil || t.Alias == nil {
 				return false // a UNION in the subquery, or no alias — can't reference it
 			}
 			result[t.Alias.Value] = mssqlTableRef{Derived: t.Subquery}
+			order = append(order, t.Alias.Value)
 			return true
 		default:
 			return false // table-valued function or similar — not this pass's job
@@ -305,8 +329,8 @@ func collectJoinTablesMSSQL(tables []ast.TableReference) (map[string]mssqlTableR
 	}
 	for _, t := range tables {
 		if !walk(t) {
-			return nil, false
+			return nil, nil, false
 		}
 	}
-	return result, true
+	return result, order, true
 }

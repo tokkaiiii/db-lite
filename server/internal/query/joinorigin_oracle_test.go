@@ -49,7 +49,7 @@ func TestCollectJoinTablesOracle_MatchesRealTables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			qb := mustParseQueryBlockOracle(t, tt.stmt)
-			got, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list())
+			got, _, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list())
 			if !ok {
 				t.Fatalf("collectJoinTablesOracle(%q) failed, want match", tt.stmt)
 			}
@@ -72,7 +72,7 @@ func TestCollectJoinTablesOracle_MatchesRealTables(t *testing.T) {
 // resolveDerivedColumnOracle can look inside it.
 func TestCollectJoinTablesOracle_MatchesDerivedTable(t *testing.T) {
 	qb := mustParseQueryBlockOracle(t, `SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id`)
-	got, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list())
+	got, _, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list())
 	if !ok {
 		t.Fatal("collectJoinTablesOracle failed, want match")
 	}
@@ -86,7 +86,7 @@ func TestCollectJoinTablesOracle_MatchesDerivedTable(t *testing.T) {
 
 func TestCollectJoinTablesOracle_RejectsUnionInDerivedTable(t *testing.T) {
 	qb := mustParseQueryBlockOracle(t, `SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id`)
-	if _, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list()); ok {
+	if _, _, ok := collectJoinTablesOracle(qb.From_clause().Table_ref_list()); ok {
 		t.Error("collectJoinTablesOracle matched a UNION inside a derived table, want reject")
 	}
 }

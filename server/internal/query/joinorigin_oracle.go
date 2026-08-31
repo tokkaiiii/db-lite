@@ -126,15 +126,34 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 		return stmt, nil, false
 	}
 
-	aliasToRef, tablesOK := collectJoinTablesOracle(fromClause.Table_ref_list())
+	aliasToRef, order, tablesOK := collectJoinTablesOracle(fromClause.Table_ref_list())
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
 
+	if selectedList.ASTERISK() != nil {
+		// A bare (unqualified) `SELECT *` across the whole FROM: no
+		// rewrite needed at all, since SQL's `*` expansion order is
+		// well-defined — see expandWildcardOrigins.
+		tables := make([]string, len(order))
+		for i, alias := range order {
+			ref := aliasToRef[alias]
+			if ref.Derived != nil {
+				return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
+			}
+			tables[i] = ref.Table
+		}
+		wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
+		if !wildcardOK {
+			return stmt, nil, false
+		}
+		return stmt, wildcardOrigins, true
+	}
+
 	elements := selectedList.AllSelect_list_elements()
 	visibleCount := len(elements)
-	if selectedList.ASTERISK() != nil || visibleCount == 0 {
-		return stmt, nil, false // bare `SELECT *` across a JOIN: not this pass's job
+	if visibleCount == 0 {
+		return stmt, nil, false
 	}
 	for _, elem := range elements {
 		if elem.Table_wild() != nil {
@@ -321,7 +340,7 @@ func resolveDerivedColumnOracle(derived *plsqlparser.Query_blockContext, outerCo
 	if fromClause == nil || selectedList == nil || selectedList.ASTERISK() != nil {
 		return "", "", false
 	}
-	innerTables, tablesOK := collectJoinTablesOracle(fromClause.Table_ref_list())
+	innerTables, _, tablesOK := collectJoinTablesOracle(fromClause.Table_ref_list())
 	if !tablesOK {
 		return "", "", false
 	}
@@ -411,9 +430,9 @@ func oracleUnquote(s string) string {
 // unaliased) to what it refers to — a real table, or (one level deep) a
 // derived table. ok is false the moment it finds anything this narrow
 // pass doesn't understand, so the caller can bail out rather than guess.
-func collectJoinTablesOracle(list plsqlparser.ITable_ref_listContext) (map[string]oracleTableRef, bool) {
+func collectJoinTablesOracle(list plsqlparser.ITable_ref_listContext) (refs map[string]oracleTableRef, order []string, ok bool) {
 	if list == nil {
-		return nil, false
+		return nil, nil, false
 	}
 	result := map[string]oracleTableRef{}
 	addAux := func(aux plsqlparser.ITable_ref_auxContext) bool {
@@ -434,7 +453,9 @@ func collectJoinTablesOracle(list plsqlparser.ITable_ref_listContext) (map[strin
 			if !ok || aux.Table_alias() == nil {
 				return false // a UNION in the subquery, or no alias — can't reference it
 			}
-			result[oracleUnquote(aux.Table_alias().GetText())] = oracleTableRef{Derived: derivedQB}
+			alias := oracleUnquote(aux.Table_alias().GetText())
+			result[alias] = oracleTableRef{Derived: derivedQB}
+			order = append(order, alias)
 			return true
 		}
 
@@ -451,17 +472,18 @@ func collectJoinTablesOracle(list plsqlparser.ITable_ref_listContext) (map[strin
 			alias = oracleUnquote(aux.Table_alias().GetText())
 		}
 		result[alias] = oracleTableRef{Table: bare}
+		order = append(order, alias)
 		return true
 	}
 	for _, ref := range list.AllTable_ref() {
 		if !addAux(ref.Table_ref_aux()) {
-			return nil, false
+			return nil, nil, false
 		}
 		for _, join := range ref.AllJoin_clause() {
 			if !addAux(join.Table_ref_aux()) {
-				return nil, false
+				return nil, nil, false
 			}
 		}
 	}
-	return result, true
+	return result, order, true
 }

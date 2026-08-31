@@ -54,21 +54,44 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 		return stmt, nil, false
 	}
 
-	aliasToRef, tablesOK := collectJoinTablesMySQL(sel.From)
+	aliasToRef, order, tablesOK := collectJoinTablesMySQL(sel.From)
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
+
+	if len(sel.SelectExprs) == 1 {
+		if star, isStar := sel.SelectExprs[0].(*sqlparser.StarExpr); isStar && star.TableName.IsEmpty() {
+			// A bare (unqualified) `SELECT *` across the whole FROM: no
+			// rewrite needed at all, since SQL's `*` expansion order is
+			// well-defined — see expandWildcardOrigins.
+			tables := make([]string, len(order))
+			for i, alias := range order {
+				ref := aliasToRef[alias]
+				if ref.Derived != nil {
+					return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
+				}
+				tables[i] = ref.Table
+			}
+			wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
+			if !wildcardOK {
+				return stmt, nil, false
+			}
+			return stmt, wildcardOrigins, true
+		}
+	}
 	for _, se := range sel.SelectExprs {
 		if _, isStar := se.(*sqlparser.StarExpr); isStar {
-			// `*` or `alias.*` expands to however many real columns that
-			// table has, which this pass has no schema access to count —
-			// so len(sel.SelectExprs) can't be trusted as the number of
+			// `alias.*`, or `*` mixed with other columns, expands to
+			// however many real columns that table has, which this pass
+			// has no schema access to count in that shape — so
+			// len(sel.SelectExprs) can't be trusted as the number of
 			// physical result columns at all. Bailing out entirely (not
 			// just leaving this one column's origin nil) is required:
 			// treating it as "one untraceable column" would silently
 			// truncate every OTHER column in the actual result too (found
 			// live — `SELECT * FROM a JOIN b` was rendering only its
-			// first physical column).
+			// first physical column, before the bare-`*` case above was
+			// handled specially).
 			return stmt, nil, false
 		}
 	}
@@ -246,7 +269,7 @@ func resolveDerivedColumnMySQL(derived *sqlparser.Select, outerColName string) (
 	if len(derived.GroupBy) > 0 || derived.Having != nil || derived.Distinct != "" {
 		return "", "", false
 	}
-	innerTables, tablesOK := collectJoinTablesMySQL(derived.From)
+	innerTables, _, tablesOK := collectJoinTablesMySQL(derived.From)
 	if !tablesOK {
 		return "", "", false
 	}
@@ -293,9 +316,11 @@ func resolveDerivedColumnMySQL(derived *sqlparser.Select, outerColName string) (
 // collectJoinTablesMySQL walks a FROM clause made of table references
 // (optionally JOINed), mapping each alias (or bare table name when
 // unaliased) to what it refers to — a real table, or (one level deep) a
-// derived table. ok is false the moment it finds anything this narrow pass
-// doesn't understand, so the caller can bail out rather than guess.
-func collectJoinTablesMySQL(from sqlparser.TableExprs) (map[string]mysqlTableRef, bool) {
+// derived table — and also returning those aliases in FROM order (needed
+// to expand a bare `SELECT *`; see expandWildcardOrigins). ok is false the
+// moment it finds anything this narrow pass doesn't understand, so the
+// caller can bail out rather than guess.
+func collectJoinTablesMySQL(from sqlparser.TableExprs) (refs map[string]mysqlTableRef, order []string, ok bool) {
 	result := map[string]mysqlTableRef{}
 	var walk func(sqlparser.TableExpr) bool
 	walk = func(te sqlparser.TableExpr) bool {
@@ -310,6 +335,7 @@ func collectJoinTablesMySQL(from sqlparser.TableExprs) (map[string]mysqlTableRef
 					alias = inner.Name.String()
 				}
 				result[alias] = mysqlTableRef{Table: bareTableName(inner.Name.String())}
+				order = append(order, alias)
 				return true
 			case *sqlparser.Subquery:
 				derivedSel, isSelect := inner.Select.(*sqlparser.Select)
@@ -317,6 +343,7 @@ func collectJoinTablesMySQL(from sqlparser.TableExprs) (map[string]mysqlTableRef
 					return false // a UNION in the subquery, or no alias — can't reference it
 				}
 				result[t.As.String()] = mysqlTableRef{Derived: derivedSel}
+				order = append(order, t.As.String())
 				return true
 			default:
 				return false
@@ -327,8 +354,8 @@ func collectJoinTablesMySQL(from sqlparser.TableExprs) (map[string]mysqlTableRef
 	}
 	for _, te := range from {
 		if !walk(te) {
-			return nil, false
+			return nil, nil, false
 		}
 	}
-	return result, true
+	return result, order, true
 }

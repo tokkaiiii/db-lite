@@ -55,7 +55,7 @@ func TestCollectJoinTablesPostgres_MatchesRealTables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sel := mustParseSelectPostgres(t, tt.stmt)
-			got, ok := collectJoinTablesPostgres(sel.FromClause)
+			got, _, ok := collectJoinTablesPostgres(sel.FromClause)
 			if !ok {
 				t.Fatalf("collectJoinTablesPostgres(%q) failed, want match", tt.stmt)
 			}
@@ -78,7 +78,7 @@ func TestCollectJoinTablesPostgres_MatchesRealTables(t *testing.T) {
 // outright, so resolveDerivedColumnPostgres can look inside it.
 func TestCollectJoinTablesPostgres_MatchesDerivedTable(t *testing.T) {
 	sel := mustParseSelectPostgres(t, "SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id")
-	got, ok := collectJoinTablesPostgres(sel.FromClause)
+	got, _, ok := collectJoinTablesPostgres(sel.FromClause)
 	if !ok {
 		t.Fatal("collectJoinTablesPostgres failed, want match")
 	}
@@ -92,7 +92,7 @@ func TestCollectJoinTablesPostgres_MatchesDerivedTable(t *testing.T) {
 
 func TestCollectJoinTablesPostgres_RejectsUnionInDerivedTable(t *testing.T) {
 	sel := mustParseSelectPostgres(t, "SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id")
-	if _, ok := collectJoinTablesPostgres(sel.FromClause); ok {
+	if _, _, ok := collectJoinTablesPostgres(sel.FromClause); ok {
 		t.Error("collectJoinTablesPostgres matched a UNION inside a derived table, want reject")
 	}
 }

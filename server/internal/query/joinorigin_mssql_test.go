@@ -55,7 +55,7 @@ func TestCollectJoinTablesMSSQL_MatchesRealTables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sel := mustParseSelectMSSQL(t, tt.stmt)
-			got, ok := collectJoinTablesMSSQL(sel.From.Tables)
+			got, _, ok := collectJoinTablesMSSQL(sel.From.Tables)
 			if !ok {
 				t.Fatalf("collectJoinTablesMSSQL(%q) failed, want match", tt.stmt)
 			}
@@ -78,7 +78,7 @@ func TestCollectJoinTablesMSSQL_MatchesRealTables(t *testing.T) {
 // resolveDerivedColumnMSSQL can look inside it.
 func TestCollectJoinTablesMSSQL_MatchesDerivedTable(t *testing.T) {
 	sel := mustParseSelectMSSQL(t, "SELECT * FROM (SELECT id, name FROM users) u JOIN orders o ON u.id = o.user_id")
-	got, ok := collectJoinTablesMSSQL(sel.From.Tables)
+	got, _, ok := collectJoinTablesMSSQL(sel.From.Tables)
 	if !ok {
 		t.Fatal("collectJoinTablesMSSQL failed, want match")
 	}
@@ -92,7 +92,7 @@ func TestCollectJoinTablesMSSQL_MatchesDerivedTable(t *testing.T) {
 
 func TestCollectJoinTablesMSSQL_RejectsUnionInDerivedTable(t *testing.T) {
 	sel := mustParseSelectMSSQL(t, "SELECT * FROM (SELECT id FROM users UNION SELECT id FROM orders) u JOIN orders o ON u.id = o.user_id")
-	if _, ok := collectJoinTablesMSSQL(sel.From.Tables); ok {
+	if _, _, ok := collectJoinTablesMSSQL(sel.From.Tables); ok {
 		t.Error("collectJoinTablesMSSQL matched a UNION inside a derived table, want reject")
 	}
 }

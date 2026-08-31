@@ -45,21 +45,44 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 		return stmt, nil, false
 	}
 
-	aliasToRef, tablesOK := collectJoinTablesPostgres(sel.FromClause)
+	aliasToRef, order, tablesOK := collectJoinTablesPostgres(sel.FromClause)
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
+	}
+
+	if len(sel.TargetList) == 1 {
+		if colRef := sel.TargetList[0].GetResTarget().GetVal().GetColumnRef(); colRef != nil &&
+			len(colRef.Fields) == 1 && colRef.Fields[0].GetAStar() != nil {
+			// A bare (unqualified) `SELECT *` across the whole FROM: no
+			// rewrite needed at all, since SQL's `*` expansion order is
+			// well-defined — see expandWildcardOrigins.
+			tables := make([]string, len(order))
+			for i, alias := range order {
+				ref := aliasToRef[alias]
+				if ref.Derived != nil {
+					return stmt, nil, false // wildcard expansion through a derived table isn't supported yet
+				}
+				tables[i] = ref.Table
+			}
+			wildcardOrigins, wildcardOK := expandWildcardOrigins(db, kind, tables)
+			if !wildcardOK {
+				return stmt, nil, false
+			}
+			return stmt, wildcardOrigins, true
+		}
 	}
 	for _, item := range sel.TargetList {
 		if colRef := item.GetResTarget().GetVal().GetColumnRef(); colRef != nil {
 			for _, f := range colRef.Fields {
 				if f.GetAStar() != nil {
-					// `*` or `alias.*` expands to however many real
-					// columns that table has, which this pass has no
-					// schema access to count — so len(sel.TargetList)
-					// can't be trusted as the number of physical result
-					// columns at all. Bailing out entirely (not just
-					// leaving this one column's origin nil) is required
-					// — see the MySQL pass's version of this same guard.
+					// `alias.*`, or `*` mixed with other columns, expands
+					// to however many real columns that table has, which
+					// this pass has no schema access to count in that
+					// shape — so len(sel.TargetList) can't be trusted as
+					// the number of physical result columns at all.
+					// Bailing out entirely (not just leaving this one
+					// column's origin nil) is required — see the MySQL
+					// pass's version of this same guard.
 					return stmt, nil, false
 				}
 			}
@@ -215,7 +238,7 @@ func resolveDerivedColumnPostgres(derived *pg_query.SelectStmt, outerColName str
 	if len(derived.DistinctClause) > 0 || len(derived.GroupClause) > 0 || derived.HavingClause != nil {
 		return "", "", false
 	}
-	innerTables, tablesOK := collectJoinTablesPostgres(derived.FromClause)
+	innerTables, _, tablesOK := collectJoinTablesPostgres(derived.FromClause)
 	if !tablesOK {
 		return "", "", false
 	}
@@ -273,9 +296,11 @@ func resolveDerivedColumnPostgres(derived *pg_query.SelectStmt, outerColName str
 // collectJoinTablesPostgres walks a FROM clause made of table references
 // (optionally JOINed), mapping each alias (or bare table name when
 // unaliased) to what it refers to — a real table, or (one level deep) a
-// derived table. ok is false the moment it finds anything this narrow pass
-// doesn't understand, so the caller can bail out rather than guess.
-func collectJoinTablesPostgres(from []*pg_query.Node) (map[string]postgresTableRef, bool) {
+// derived table — and also returning those aliases in FROM order (needed
+// to expand a bare `SELECT *`; see expandWildcardOrigins). ok is false the
+// moment it finds anything this narrow pass doesn't understand, so the
+// caller can bail out rather than guess.
+func collectJoinTablesPostgres(from []*pg_query.Node) (refs map[string]postgresTableRef, order []string, ok bool) {
 	result := map[string]postgresTableRef{}
 	var walk func(*pg_query.Node) bool
 	walk = func(n *pg_query.Node) bool {
@@ -288,6 +313,7 @@ func collectJoinTablesPostgres(from []*pg_query.Node) (map[string]postgresTableR
 				alias = rv.Alias.Aliasname
 			}
 			result[alias] = postgresTableRef{Table: rv.Relname}
+			order = append(order, alias)
 			return true
 		}
 		if rs := n.GetRangeSubselect(); rs != nil {
@@ -296,14 +322,15 @@ func collectJoinTablesPostgres(from []*pg_query.Node) (map[string]postgresTableR
 				return false // a UNION in the subquery, or no alias — can't reference it
 			}
 			result[rs.Alias.Aliasname] = postgresTableRef{Derived: derivedSel}
+			order = append(order, rs.Alias.Aliasname)
 			return true
 		}
 		return false
 	}
 	for _, n := range from {
 		if !walk(n) {
-			return nil, false
+			return nil, nil, false
 		}
 	}
-	return result, true
+	return result, order, true
 }
