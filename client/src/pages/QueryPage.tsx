@@ -337,6 +337,19 @@ function QueryResultView({
   const columns = result.columns
   const downloadEnabled = canDownloadCell(connectionId, result)
   const pkIndexes = downloadEnabled ? result.primaryKey!.map((pk) => columns.indexOf(pk)) : []
+  // 셀 값이 길어 한 줄로 잘려 보일 때, 클릭해서 그 셀만 펼쳐 전체 값을 볼 수
+  // 있게 한다 — 원본 다운로드(서버 재조회)와 달리 이미 받아온 값을 그대로
+  // 보여주는 것뿐이라 Cell Truncation(2KB)까지만 보인다.
+  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set())
+
+  function toggleExpand(key: string) {
+    setExpandedCells((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   async function downloadCell(row: unknown[], column: string) {
     const primaryKey: Record<string, unknown> = {}
@@ -364,21 +377,34 @@ function QueryResultView({
         <tbody>
           {result.rows.map((row, i) => (
             <tr key={i}>
-              {row.map((cell, j) => (
-                <td key={j}>
-                  {cell === null ? 'NULL' : String(cell)}
-                  {downloadEnabled && (
-                    <button
-                      type="button"
-                      className="cell-download"
-                      title="원본 값 다운로드"
-                      onClick={() => downloadCell(row, columns[j])}
-                    >
-                      ⬇
-                    </button>
-                  )}
-                </td>
-              ))}
+              {row.map((cell, j) => {
+                const cellKey = `${i}-${j}`
+                const text = cell === null ? 'NULL' : String(cell)
+                const expanded = expandedCells.has(cellKey)
+                return (
+                  <td
+                    key={j}
+                    className={expanded ? 'cell-expanded' : undefined}
+                    onClick={() => toggleExpand(cellKey)}
+                    title={expanded ? undefined : '클릭하면 전체 값 보기'}
+                  >
+                    <span className="cell-value">{text}</span>
+                    {downloadEnabled && (
+                      <button
+                        type="button"
+                        className="cell-download"
+                        title="원본 값 다운로드"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          downloadCell(row, columns[j])
+                        }}
+                      >
+                        ⭳
+                      </button>
+                    )}
+                  </td>
+                )
+              })}
             </tr>
           ))}
         </tbody>

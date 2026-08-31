@@ -177,19 +177,60 @@ code {
 }
 
 .cell-download {
-  margin-left: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3em;
+  height: 1.3em;
+  margin-left: 0.35rem;
+  padding: 0;
   border: none;
-  background: none;
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.35;
   font-size: 0.85rem;
-  padding: 0;
+  vertical-align: middle;
+  transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+
+tr:hover .cell-download {
+  opacity: 0.75;
 }
 
 .cell-download:hover {
   opacity: 1;
-  background: none;
+  background: var(--bg-hover);
+  color: var(--accent-green);
+}
+
+/* 쿼리 결과 그리드: 긴 값(예: XML/JSON 텍스트)이 행 전체를 부풀리지 않도록
+   기본은 한 줄로 잘라 보여주고, 셀을 클릭하면 그 셀만 펼쳐서 전체 값을
+   확인할 수 있게 한다. */
+.query-results td {
+  cursor: pointer;
+  vertical-align: top;
+}
+
+.query-results .cell-value {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.query-results td.cell-expanded {
+  cursor: default;
+}
+
+.query-results td.cell-expanded .cell-value {
+  display: block;
+  max-width: none;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .login-page {
