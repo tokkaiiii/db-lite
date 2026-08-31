@@ -1,6 +1,6 @@
 # 셀 다운로드를 JOIN 포함 임의의 SELECT로 확장하고, 이를 위해 정규식 대신 SQL 파서를 도입한다
 
-**Status**: accepted (MySQL JOIN 1차 구현만 — 아래 "1차 구현" 참고)
+**Status**: accepted (4방언 JOIN까지 구현 완료 — 아래 "구현 현황" 참고, 서브쿼리/CTE/UNION은 아직 후속 작업)
 
 ADR 0009는 셀 다운로드(그리드에 표시된 잘린 값이 아니라 DB의 원본 바이트를 재조회)를 "PK가 있는 단일 테이블 `SELECT *`"로 좁혔다. 이유는 "이 셀 값이 정확히 어느 행에서 왔는지" 알아낼 방법이 좁은 정규식 파싱(ADR 0008) 밖에서는 없었기 때문이다. 사용자가 JOIN을 포함한 임의의 SELECT 결과에서도 셀 다운로드를 쓰고 싶어 해서, 이번에 그 범위를 넓힌다. **지원 범위**는 JOIN뿐 아니라 서브쿼리, CTE, UNION, 명시적 컬럼 목록까지 포함한 사실상 임의의 SELECT로 정한다.
 
@@ -18,8 +18,18 @@ ADR 0009는 셀 다운로드(그리드에 표시된 잘린 값이 아니라 DB�
 
 **범위 밖**: 디비버 스타일 인앱 값 뷰어는 ADR 0009와 마찬가지로 범위 밖이다. 파서 라이브러리 선정과 방언별 정규화 계층의 구체적 구현은 이 ADR이 아니라 별도 구현 계획에서 다룬다.
 
-## 1차 구현 (MySQL, JOIN만)
+## 구현 현황
 
-실제 구현은 범위를 좁혀 먼저 MySQL(`github.com/xwb1989/sqlparser`, 순수 Go)의 일반 JOIN(파생 테이블 없는 `t1 [AS] a1 JOIN t2 [AS] a2 ON ...`)만 지원한다. Postgres/MSSQL/Oracle 파서, 서브쿼리/CTE 재귀 추적, UNION 버치 태깅은 후속 작업(wayfinder 이슈)으로 남겨뒀다.
+실제 구현은 "일반 JOIN(파생 테이블 없는 `t1 [AS] a1 JOIN t2 [AS] a2 ON ...`)"부터 좁혀 시작했고, 방언은 MySQL → Postgres → MSSQL → Oracle 순서로 하나씩 붙여 각각 Docker 컨테이너로 실제 검증했다. 서브쿼리/CTE 재귀 추적과 UNION 버치 태깅은 아직 후속 작업(wayfinder 이슈)으로 남아 있다.
 
-이 1차 구현을 Docker MySQL로 검증하는 과정에서 예상 못 한 제약을 하나 발견했다: PK 자동 주입(위 "PK 누락 시" 항목)이 **`GROUP BY`가 있는 쿼리를 깨뜨릴 수 있다** — MySQL의 `only_full_group_by` 모드가 GROUP BY에 없는 컬럼이 SELECT 목록에 추가되는 것을 거부해, 원래 잘 실행되던 쿼리가 에러로 바뀌었다. `DISTINCT`도 비슷하게 위험하다 — 숨겨진 PK 컬럼이 추가되면 어떤 행이 "distinct"로 취급되는지가 조용히 바뀔 수 있다(에러가 아니라 잘못된 결과). 그래서 파서 경로는 `GROUP BY`/`HAVING`/`DISTINCT`가 있는 문장은 통계를 손대지 않고 통째로 건너뛴다(그 쿼리에 대해서는 다운로드 기능 전체를 비활성화) — 이 판단은 Postgres/MSSQL/Oracle 파서를 붙일 때도 그대로 적용해야 한다.
+**방언별 파서**:
+- MySQL — `github.com/xwb1989/sqlparser` (순수 Go, vitess 초기 포크)
+- Postgres — `github.com/wasilibs/go-pgquery`(파싱/deparse) + `github.com/pganalyze/pg_query_go/v6`(AST 타입·노드 생성 헬퍼). go-pgquery는 실제 Postgres 파서를 WASM으로 컴파일해 cgo 없이 크로스컴파일 가능하게 만든 pg_query_go의 드롭인 대체품 — 리턴 타입이 pg_query_go와 동일한 protobuf라 헬퍼 함수를 그대로 재사용한다.
+- MSSQL — `github.com/ha1tch/tsqlparser` (순수 Go, T-SQL 전용 recursive-descent 파서, `.String()`으로 재직렬화 가능)
+- Oracle — `github.com/bytebase/plsql-parser`(ANTLR 생성 PL/SQL 문법) + `github.com/antlr4-go/antlr/v4`. 처음엔 `github.com/bytebase/omni`(더 높은 수준의 래퍼)를 시도했으나, 이걸 추가하자 `go mod tidy`가 MySQL/Postgres/MSSQL/Oracle 드라이버 자체 버전까지 줄줄이 끌어올렸다 — 이 기능과 무관한 위험한 부작용이라 되돌리고 더 가벼운 `plsql-parser`(ANTLR 문법만, 드라이버 의존성 없음)로 바꿨다.
+
+**Oracle 파서의 리라이트 방식이 다른 세 방언과 다르다**: xwb1989/sqlparser·go-pgquery·tsqlparser는 모두 AST를 고치고 다시 SQL 문자열로 직렬화하는 `String()`/`Deparse()` 함수를 제공하지만, ANTLR로 생성된 plsql-parser에는 그런 역직렬화 기능이 없다. 대신 파싱된 `selected_list`의 마지막 토큰이 원본 문자열의 몇 번째 문자에서 끝나는지 찾아, 그 위치 바로 뒤에 숨은 PK 컬럼 텍스트를 직접 이어붙인다 — ADR 0008의 정규식 리라이트가 원래 하던 것과 같은 발상의 텍스트 스플라이싱을, 이번엔 정규식 대신 실제 파스 트리가 찾아준 위치를 기준으로 한 것. 이때 ANTLR Go 런타임의 토큰 위치는 **바이트가 아니라 룬(rune) 단위**라, 스플라이싱도 `[]rune`으로 변환해서 처리해야 한다(이 프로젝트는 한국어 사용자 대상이라 테이블/컬럼명에 비ASCII 문자가 실제로 나올 수 있음).
+
+**Oracle은 대소문자 폴딩이 이미 알려진 제약**: ADR 0008 당시 이미 발견된 사실(`internal/dbconn/lob.go`의 주석 참고)로, Oracle은 따옴표 없는 식별자를 항상 대문자로 저장하고 `USER_TAB_COLUMNS`/PK 조회는 대소문자를 구분한다. 즉 쿼리를 `FROM users`(소문자)로 쓰면 실제 카탈로그의 `USERS`와 매치되지 않아 PK를 못 찾고 다운로드가 자연히 비활성화된다 — 새 버그가 아니라 기존 ADR 0008 rewrite와 동일한 fail-open 동작이 그대로 이어진 것이다. 이번 JOIN 경로도 같은 이유로 대문자로 쓴 쿼리(`FROM USERS U JOIN ORDERS O ...`)에서만 다운로드가 활성화되는 것을 Docker Oracle로 확인했다.
+
+**GROUP BY/DISTINCT 가드**: 첫 MySQL 구현을 Docker MySQL로 검증하는 과정에서 예상 못 한 제약을 하나 발견했다 — PK 자동 주입(위 "PK 누락 시" 항목)이 **`GROUP BY`가 있는 쿼리를 깨뜨릴 수 있다**. MySQL의 `only_full_group_by` 모드가 GROUP BY에 없는 컬럼이 SELECT 목록에 추가되는 것을 거부해, 원래 잘 실행되던 쿼리가 에러로 바뀌었다. `DISTINCT`도 비슷하게 위험하다 — 숨겨진 PK 컬럼이 추가되면 어떤 행이 "distinct"로 취급되는지가 조용히 바뀔 수 있다(에러가 아니라 잘못된 결과). 그래서 4개 방언 모두, 파서 경로는 `GROUP BY`/`HAVING`/`DISTINCT`가 있는 문장은 통계를 손대지 않고 통째로 건너뛴다(그 쿼리에 대해서는 다운로드 기능 전체를 비활성화).

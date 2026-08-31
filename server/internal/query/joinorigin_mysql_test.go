@@ -51,12 +51,12 @@ func TestCollectJoinTables_Matches(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sel := mustParseSelect(t, tt.stmt)
-			got, ok := collectJoinTables(sel.From)
+			got, ok := collectJoinTablesMySQL(sel.From)
 			if !ok {
-				t.Fatalf("collectJoinTables(%q) failed, want match", tt.stmt)
+				t.Fatalf("collectJoinTablesMySQL(%q) failed, want match", tt.stmt)
 			}
 			if len(got) != len(tt.want) {
-				t.Fatalf("collectJoinTables(%q) = %v, want %v", tt.stmt, got, tt.want)
+				t.Fatalf("collectJoinTablesMySQL(%q) = %v, want %v", tt.stmt, got, tt.want)
 			}
 			for alias, table := range tt.want {
 				if got[alias] != table {
@@ -69,14 +69,14 @@ func TestCollectJoinTables_Matches(t *testing.T) {
 
 func TestCollectJoinTables_RejectsDerivedTable(t *testing.T) {
 	sel := mustParseSelect(t, "SELECT * FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
-	if _, ok := collectJoinTables(sel.From); ok {
+	if _, ok := collectJoinTablesMySQL(sel.From); ok {
 		t.Error("collectJoinTables matched a derived table, want reject")
 	}
 }
 
 func TestPrepareJoinOrigins_NonMySQLBailsOut(t *testing.T) {
 	db := newTestDB(t)
-	_, origins, ok := prepareJoinOrigins(db, store.DBKindPostgres, "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id")
+	_, origins, ok := prepareJoinOriginsMySQL(db, store.DBKindPostgres, "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id")
 	if ok || origins != nil {
 		t.Errorf("prepareJoinOrigins on non-MySQL kind = (ok=%v, origins=%v), want (false, nil)", ok, origins)
 	}
@@ -91,24 +91,24 @@ func TestPrepareJoinOrigins_NonMySQLBailsOut(t *testing.T) {
 func TestPrepareJoinOrigins_GroupByBailsOutEntirely(t *testing.T) {
 	db := newTestDB(t)
 	stmt := "SELECT u.name, COUNT(*) FROM users u JOIN orders o ON u.id = o.user_id GROUP BY u.name"
-	rewritten, origins, ok := prepareJoinOrigins(db, testKind, stmt)
+	rewritten, origins, ok := prepareJoinOriginsMySQL(db, testKind, stmt)
 	if ok || origins != nil || rewritten != stmt {
-		t.Errorf("prepareJoinOrigins(GROUP BY) = (rewritten=%q, origins=%v, ok=%v), want (stmt unchanged, nil, false)", rewritten, origins, ok)
+		t.Errorf("prepareJoinOriginsMySQL(GROUP BY) = (rewritten=%q, origins=%v, ok=%v), want (stmt unchanged, nil, false)", rewritten, origins, ok)
 	}
 }
 
 func TestPrepareJoinOrigins_DistinctBailsOutEntirely(t *testing.T) {
 	db := newTestDB(t)
 	stmt := "SELECT DISTINCT u.name FROM users u JOIN orders o ON u.id = o.user_id"
-	rewritten, origins, ok := prepareJoinOrigins(db, testKind, stmt)
+	rewritten, origins, ok := prepareJoinOriginsMySQL(db, testKind, stmt)
 	if ok || origins != nil || rewritten != stmt {
-		t.Errorf("prepareJoinOrigins(DISTINCT) = (rewritten=%q, origins=%v, ok=%v), want (stmt unchanged, nil, false)", rewritten, origins, ok)
+		t.Errorf("prepareJoinOriginsMySQL(DISTINCT) = (rewritten=%q, origins=%v, ok=%v), want (stmt unchanged, nil, false)", rewritten, origins, ok)
 	}
 }
 
 func TestPrepareJoinOrigins_NoJoinBailsOut(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOrigins(db, testKind, "SELECT id, name FROM users")
+	_, _, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT id, name FROM users")
 	if ok {
 		t.Error("prepareJoinOrigins matched a single-table statement, want reject (that's ADR 0008/0009's job)")
 	}
@@ -116,7 +116,7 @@ func TestPrepareJoinOrigins_NoJoinBailsOut(t *testing.T) {
 
 func TestPrepareJoinOrigins_DerivedTableBailsOut(t *testing.T) {
 	db := newTestDB(t)
-	_, _, ok := prepareJoinOrigins(db, testKind, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
+	_, _, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT u.id FROM (SELECT * FROM users) u JOIN orders o ON u.id = o.user_id")
 	if ok {
 		t.Error("prepareJoinOrigins matched a derived table, want reject")
 	}
@@ -128,7 +128,7 @@ func TestPrepareJoinOrigins_DerivedTableBailsOut(t *testing.T) {
 // though the statement shape as a whole is recognized.
 func TestPrepareJoinOrigins_UnqualifiedColumnStaysUnknown(t *testing.T) {
 	db := newTestDB(t)
-	_, origins, ok := prepareJoinOrigins(db, testKind, "SELECT count FROM users u JOIN orders o ON u.id = o.user_id")
+	_, origins, ok := prepareJoinOriginsMySQL(db, testKind, "SELECT count FROM users u JOIN orders o ON u.id = o.user_id")
 	if !ok {
 		t.Fatal("prepareJoinOrigins rejected a recognized JOIN shape")
 	}
