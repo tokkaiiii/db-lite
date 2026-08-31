@@ -41,5 +41,8 @@ _Avoid_: 결과 잘림, 잘린 결과
 _Avoid_: 값 잘림, 텍스트 잘림
 
 **Cell Value Download**:
-PK가 있는 단일 테이블 `SELECT *` 결과에서, 그 행의 PK 값으로 해당 컬럼만 다시 조회해 잘리지 않은 원본 값을 파일로 내려받는 기능. Cell Truncation으로 그리드에 표시된 축약 값과 달리, 항상 DB의 실제 원본 바이트를 그대로 준다. PK가 없거나 JOIN/서브쿼리처럼 행을 유일하게 식별할 수 없는 결과에는 제공되지 않는다. ([ADR 0009](docs/adr/0009-cell-value-download.md))
+그 셀이 속한 행의 PK 값으로 해당 컬럼만 다시 조회해 잘리지 않은 원본 값을 파일로 내려받는 기능. Cell Truncation으로 그리드에 표시된 축약 값과 달리, 항상 DB의 실제 원본 바이트를 그대로 준다. 처음엔 PK가 있는 단일 테이블 `SELECT *` 결과에만 제공됐지만([ADR 0009](docs/adr/0009-cell-value-download.md)), 이후 SQL 파서를 도입해 JOIN·1단계 서브쿼리(파생 테이블)·`SELECT *`(혼합 와일드카드 포함) 결과에서도 컬럼별로 출처 테이블을 추적할 수 있으면 제공된다 — 다운로드 가능 여부는 이제 결과 전체가 아니라 **컬럼 단위**로 결정된다([ADR 0011](docs/adr/0011-cell-download-for-arbitrary-select.md)). PK가 없거나, 출처 테이블을 추적할 수 없는 컬럼(집계식, CTE/UNION 결과 등)에는 여전히 제공되지 않는다.
 _Avoid_: 전체 값 보기, 원본 다운로드
+
+**Column Origin**:
+쿼리 결과의 한 컬럼이 실제로 어느 테이블·PK에서 왔는지를 나타내는 서버 계산값(`Result.ColumnOrigins`). JOIN·서브쿼리처럼 여러 테이블이 얽힌 결과에서 Cell Value Download이 재조회할 대상을 알아내려고 SQL 파서로 정적 분석해서 만든다. 출처를 확신할 수 없는 컬럼(집계식, 비한정 컬럼 등)은 nil로 남아 그 컬럼만 다운로드가 비활성화된다. ([ADR 0011](docs/adr/0011-cell-download-for-arbitrary-select.md))

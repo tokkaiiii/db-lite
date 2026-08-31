@@ -18,7 +18,8 @@
 
 ## 기능 검증 원칙
 
-- **코드만 보고 "될 것 같다"로 끝내지 않는다.** 이 저장소는 DB 도구라 실제 버그(예: MySQL 비밀번호 특수문자로 DSN이 깨지는 문제, Postgres가 항상 고정 DB에만 붙던 문제, Oracle 서비스명 누락)가 전부 실제 Docker 컨테이너로 조회/쓰기까지 돌려봐야 드러났다. DB 연결이 얽힌 변경은 Docker로 해당 DB 종류를 띄워 Connection 등록 → Permission 부여 → 쿼리 실행까지 브라우저(Playwright)로 직접 확인한다.
+- **코드만 보고 "될 것 같다"로 끝내지 않는다.** 이 저장소는 DB 도구라 실제 버그(예: MySQL 비밀번호 특수문자로 DSN이 깨지는 문제, Postgres가 항상 고정 DB에만 붙던 문제, Oracle 서비스명 누락, MySQL이 모든 테이블의 PK 제약조건 이름을 "PRIMARY"로 고정해서 이름만으로 조인하면 다른 테이블 PK가 섞여 들어오는 문제)가 전부 실제 Docker 컨테이너로 조회/쓰기까지 돌려봐야 드러났다. DB 연결이 얽힌 변경은 Docker로 해당 DB 종류를 띄워 Connection 등록 → Permission 부여 → 쿼리 실행까지 브라우저(Playwright)로 직접 확인한다.
+- **기존 기능을 일반화하는 변경은, 그 일반화가 원래 목표했던 가장 단순한 형태부터 반드시 실제로 돌려본다.** ADR 0011(JOIN 셀 다운로드) 작업 때 `SELECT u.id, u.name FROM ...` 같은 명시적 컬럼 목록으로는 여러 번 Docker 검증을 했지만, 정작 원래 지원하려던 목표였던 `SELECT * FROM a JOIN b`(와일드카드)는 한 번도 실행해보지 않아 배포 후에야 회귀(컬럼이 1개로 잘림)를 사용자가 발견했다. "인접한 이미 되는 케이스"만 반복 검증하고 "이번에 새로 되게 하려는 그 케이스"를 빠뜨리기 쉽다.
 - 프론트엔드 전용 변경(에디터 UI, 자동완성 등)은 Go 서버 재빌드가 필요 없다 — 헷갈리지 말 것.
 - 테스트에 쓴 Docker 컨테이너, Connection, Permission은 세션이 끝나기 전에 정리한다(`docker rm -f`, 테스트용 Connection 삭제).
 - **Electron(`electron/`) 변경은 Playwright로 볼 수 없다.** `cd electron && npm start`로 띄운 뒤, `tasklist //FI "IMAGENAME eq electron.exe" //V`(빌드 후엔 `DB Lite.exe`)나 PowerShell `Get-Process -Name "<이름>" | Select MainWindowTitle`로 창 제목을 읽어 실제로 원하는 화면(설정 창 vs 서버 접속 화면)이 떴는지 확인한다. 끝나면 `taskkill //F //IM electron.exe //T`로 정리.
