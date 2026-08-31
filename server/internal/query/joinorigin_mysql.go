@@ -58,6 +58,20 @@ func prepareJoinOriginsMySQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
+	for _, se := range sel.SelectExprs {
+		if _, isStar := se.(*sqlparser.StarExpr); isStar {
+			// `*` or `alias.*` expands to however many real columns that
+			// table has, which this pass has no schema access to count —
+			// so len(sel.SelectExprs) can't be trusted as the number of
+			// physical result columns at all. Bailing out entirely (not
+			// just leaving this one column's origin nil) is required:
+			// treating it as "one untraceable column" would silently
+			// truncate every OTHER column in the actual result too (found
+			// live — `SELECT * FROM a JOIN b` was rendering only its
+			// first physical column).
+			return stmt, nil, false
+		}
+	}
 
 	visibleCount := len(sel.SelectExprs)
 	origins = make([]*ColumnOrigin, visibleCount)

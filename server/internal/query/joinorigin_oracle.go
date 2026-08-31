@@ -136,6 +136,18 @@ func prepareJoinOriginsOracle(db *sql.DB, kind store.DBKind, stmt string) (rewri
 	if selectedList.ASTERISK() != nil || visibleCount == 0 {
 		return stmt, nil, false // bare `SELECT *` across a JOIN: not this pass's job
 	}
+	for _, elem := range elements {
+		if elem.Table_wild() != nil {
+			// `alias.*` expands to however many real columns that table
+			// has, which this pass has no schema access to count — so
+			// visibleCount can't be trusted as the number of physical
+			// result columns at all if any element is a wildcard.
+			// Bailing out entirely (not just leaving this one column's
+			// origin nil) is required — see the MySQL pass's version of
+			// this same guard.
+			return stmt, nil, false
+		}
+	}
 	origins = make([]*ColumnOrigin, visibleCount)
 	hiddenKeys := make([]string, visibleCount)
 

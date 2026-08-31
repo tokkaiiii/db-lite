@@ -47,6 +47,17 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
+	for _, col := range sel.Columns {
+		if mssqlColumnIsWildcard(col) {
+			// `*` or `alias.*` expands to however many real columns that
+			// table has, which this pass has no schema access to count —
+			// so len(sel.Columns) can't be trusted as the number of
+			// physical result columns at all. Bailing out entirely (not
+			// just leaving this one column's origin nil) is required —
+			// see the MySQL pass's version of this same guard.
+			return stmt, nil, false
+		}
+	}
 
 	visibleCount := len(sel.Columns)
 	origins = make([]*ColumnOrigin, visibleCount)
@@ -173,6 +184,24 @@ func prepareJoinOriginsMSSQL(db *sql.DB, kind store.DBKind, stmt string) (rewrit
 	}
 
 	return sel.String(), origins, true
+}
+
+// mssqlColumnIsWildcard reports whether col is a `*` or `alias.*` select
+// item. tsqlparser only sets SelectColumn.AllColumns for a bare top-level
+// `*`; `alias.*` parses as a qualified reference whose last part is
+// literally the identifier "*", so both shapes need checking.
+func mssqlColumnIsWildcard(col ast.SelectColumn) bool {
+	if col.AllColumns {
+		return true
+	}
+	switch e := col.Expression.(type) {
+	case *ast.Identifier:
+		return e.Value == "*"
+	case *ast.QualifiedIdentifier:
+		return len(e.Parts) > 0 && e.Parts[len(e.Parts)-1].Value == "*"
+	default:
+		return false
+	}
 }
 
 // resolveDerivedColumnMSSQL looks up outerColName in derived's own SELECT

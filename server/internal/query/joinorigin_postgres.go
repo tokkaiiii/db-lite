@@ -49,6 +49,22 @@ func prepareJoinOriginsPostgres(db *sql.DB, kind store.DBKind, stmt string) (rew
 	if !tablesOK || len(aliasToRef) < 2 {
 		return stmt, nil, false
 	}
+	for _, item := range sel.TargetList {
+		if colRef := item.GetResTarget().GetVal().GetColumnRef(); colRef != nil {
+			for _, f := range colRef.Fields {
+				if f.GetAStar() != nil {
+					// `*` or `alias.*` expands to however many real
+					// columns that table has, which this pass has no
+					// schema access to count — so len(sel.TargetList)
+					// can't be trusted as the number of physical result
+					// columns at all. Bailing out entirely (not just
+					// leaving this one column's origin nil) is required
+					// — see the MySQL pass's version of this same guard.
+					return stmt, nil, false
+				}
+			}
+		}
+	}
 
 	visibleCount := len(sel.TargetList)
 	origins = make([]*ColumnOrigin, visibleCount)
