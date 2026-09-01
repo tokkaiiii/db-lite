@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as api from '../api/client'
 
 interface Claims {
@@ -9,6 +9,8 @@ interface Claims {
 
 interface AuthState {
   claims: Claims | null
+  sessionMessage: string | null
+  clearSessionMessage: () => void
   login: (username: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -31,10 +33,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = api.getToken()
     return token ? decodeClaims(token) : null
   })
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.onUnauthorized(() => {
+      setClaims(null)
+      setSessionMessage('세션이 만료되었습니다. 다시 로그인해주세요.')
+    })
+  }, [])
 
   const value = useMemo<AuthState>(
     () => ({
       claims,
+      sessionMessage,
+      clearSessionMessage: () => setSessionMessage(null),
       login: async (username, password) => {
         const { token } = await api.login(username, password)
         api.setToken(token)
@@ -45,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setClaims(null)
       },
     }),
-    [claims],
+    [claims, sessionMessage],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

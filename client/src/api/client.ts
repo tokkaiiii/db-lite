@@ -32,6 +32,27 @@ class ApiError extends Error {
   }
 }
 
+// Called when a request that carried a token still comes back 401 — that
+// means the Session expired (or was otherwise invalidated) server-side, as
+// opposed to a 401 from /api/login itself (wrong credentials, no token
+// sent). AuthProvider registers this once to clear its state and bounce
+// the user to the login screen instead of leaving every page to show a
+// generic "요청 실패" error for what's really an expired session.
+let unauthorizedHandler: (() => void) | null = null
+
+export function onUnauthorized(handler: () => void) {
+  unauthorizedHandler = handler
+}
+
+async function throwApiError(res: Response, token: string | null): Promise<never> {
+  const body = await res.json().catch(() => ({ error: res.statusText }))
+  if (res.status === 401 && token) {
+    clearToken()
+    unauthorizedHandler?.()
+  }
+  throw new ApiError(res.status, body.error ?? res.statusText)
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   const headers = new Headers(options.headers)
@@ -39,10 +60,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const res = await fetch(path, { ...options, headers })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(res.status, body.error ?? res.statusText)
-  }
+  if (!res.ok) await throwApiError(res, token)
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
@@ -92,10 +110,7 @@ export async function downloadCellFile(
     headers,
     body: JSON.stringify(params),
   })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(res.status, body.error ?? res.statusText)
-  }
+  if (!res.ok) await throwApiError(res, token)
 
   const blob = await res.blob()
   const filename = filenameFromContentDisposition(res.headers.get('Content-Disposition')) ?? 'download'

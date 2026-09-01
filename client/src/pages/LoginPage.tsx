@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 
 export function LoginPage() {
-  const { login } = useAuth()
+  const { login, sessionMessage, clearSessionMessage } = useAuth()
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -14,6 +14,7 @@ export function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    clearSessionMessage()
     setSubmitting(true)
     try {
       await login(username, password)
@@ -37,6 +38,7 @@ export function LoginPage() {
           비밀번호
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
+        {sessionMessage && <p className="notice">{sessionMessage}</p>}
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting}>
           로그인

@@ -172,6 +172,10 @@ code {
   color: var(--danger);
 }
 
+.notice {
+  color: var(--accent);
+}
+
 .warning {
   color: var(--warning);
 }
