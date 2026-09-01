@@ -292,3 +292,28 @@ tr:hover .cell-download {
   flex-wrap: wrap;
   margin-bottom: 1rem;
 }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-allowed {
+  background: rgba(89, 168, 105, 0.18);
+  color: var(--accent-green);
+}
+
+.badge-denied {
+  background: rgba(255, 107, 104, 0.15);
+  color: var(--danger);
+}
+
+/* 감사 로그의 쿼리 원문은 길 수 있으므로 한 줄로 잘리지 않게 줄바꿈해 보여준다. */
+.audit-statement {
+  max-width: 480px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
