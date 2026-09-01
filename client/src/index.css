@@ -298,6 +298,35 @@ tr:hover .cell-download {
   color: var(--text-dim);
 }
 
+.password-field {
+  position: relative;
+  display: flex;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 2rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.password-toggle:hover {
+  color: var(--text-bright);
+  background: transparent;
+}
+
 .inline-form {
   display: flex;
   gap: 0.75rem;
