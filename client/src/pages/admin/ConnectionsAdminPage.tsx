@@ -80,41 +80,62 @@ export function ConnectionsAdminPage() {
     <div>
       <h1>Connection 관리</h1>
       <form onSubmit={handleSubmit} className="inline-form">
-        <input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
-        <select
-          value={kind}
-          onChange={(e) => {
-            const k = e.target.value as DBKind
-            setKind(k)
-            setPort(DEFAULT_PORTS[k])
-          }}
-        >
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
-        <input placeholder="호스트" value={host} onChange={(e) => setHost(e.target.value)} />
-        <input
-          placeholder="포트"
-          type="number"
-          value={port}
-          onChange={(e) => setPort(Number(e.target.value))}
-        />
-        <input placeholder="계정" value={username} onChange={(e) => setUsername(e.target.value)} />
-        <input
-          placeholder={editingId != null ? '비밀번호 (비우면 기존 값 유지)' : '비밀번호'}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {kind === 'oracle' && (
+        <label>
+          이름
+          <input placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          종류
+          <select
+            value={kind}
+            onChange={(e) => {
+              const k = e.target.value as DBKind
+              setKind(k)
+              setPort(DEFAULT_PORTS[k])
+            }}
+          >
+            {KINDS.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          호스트
+          <input placeholder="호스트" value={host} onChange={(e) => setHost(e.target.value)} />
+        </label>
+        <label>
+          포트
           <input
-            placeholder="서비스명/SID"
-            value={serviceName}
-            onChange={(e) => setServiceName(e.target.value)}
+            placeholder="포트"
+            type="number"
+            value={port}
+            onChange={(e) => setPort(Number(e.target.value))}
           />
+        </label>
+        <label>
+          계정
+          <input placeholder="계정" value={username} onChange={(e) => setUsername(e.target.value)} />
+        </label>
+        <label>
+          비밀번호
+          <input
+            placeholder={editingId != null ? '비우면 기존 값 유지' : '비밀번호'}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        {kind === 'oracle' && (
+          <label>
+            서비스명/SID
+            <input
+              placeholder="서비스명/SID"
+              value={serviceName}
+              onChange={(e) => setServiceName(e.target.value)}
+            />
+          </label>
         )}
         <button type="submit">{editingId != null ? '수정 저장' : '추가'}</button>
         {editingId != null && (
@@ -124,35 +145,39 @@ export function ConnectionsAdminPage() {
         )}
       </form>
       {error && <p className="error">{error}</p>}
-      <table>
-        <thead>
-          <tr>
-            <th>이름</th>
-            <th>종류</th>
-            <th>호스트</th>
-            <th>계정</th>
-            <th>서비스명/SID</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {connections.map((c) => (
-            <tr key={c.id}>
-              <td>{c.name}</td>
-              <td>{c.kind}</td>
-              <td>{c.host}:{c.port}</td>
-              <td>{c.username}</td>
-              <td>{c.serviceName}</td>
-              <td>
-                <button onClick={() => startEdit(c)}>수정</button>
-                <button className="button-danger" onClick={() => handleDelete(c)}>
-                  삭제
-                </button>
-              </td>
+      {connections.length === 0 ? (
+        <p className="empty-state">등록된 Connection이 없습니다.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>이름</th>
+              <th>종류</th>
+              <th>호스트</th>
+              <th>계정</th>
+              <th>서비스명/SID</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {connections.map((c) => (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>{c.kind}</td>
+                <td>{c.host}:{c.port}</td>
+                <td>{c.username}</td>
+                <td>{c.serviceName}</td>
+                <td>
+                  <button onClick={() => startEdit(c)}>수정</button>
+                  <button className="button-danger" onClick={() => handleDelete(c)}>
+                    삭제
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

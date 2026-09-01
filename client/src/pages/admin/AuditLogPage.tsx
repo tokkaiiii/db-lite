@@ -43,26 +43,34 @@ export function AuditLogPage() {
     <div>
       <h1>감사 로그 (쓰기 쿼리만 기록)</h1>
       <div className="inline-form">
-        <select value={userFilter} onChange={(e) => setUserFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
-          <option value="all">전체 사용자</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.username}
-            </option>
-          ))}
-        </select>
-        <select value={allowedFilter} onChange={(e) => setAllowedFilter(e.target.value as AllowedFilter)}>
-          <option value="all">허용/거부 전체</option>
-          <option value="allowed">허용만</option>
-          <option value="denied">거부만</option>
-        </select>
-        <input
-          type="text"
-          placeholder="쿼리·오류 메시지 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ flex: 1, minWidth: '200px' }}
-        />
+        <label>
+          사용자
+          <select value={userFilter} onChange={(e) => setUserFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+            <option value="all">전체 사용자</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.username}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          허용 여부
+          <select value={allowedFilter} onChange={(e) => setAllowedFilter(e.target.value as AllowedFilter)}>
+            <option value="all">허용/거부 전체</option>
+            <option value="allowed">허용만</option>
+            <option value="denied">거부만</option>
+          </select>
+        </label>
+        <label style={{ flex: 1, minWidth: '200px' }}>
+          검색
+          <input
+            type="text"
+            placeholder="쿼리·오류 메시지 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
       </div>
       {entries.length === 0 ? (
         <p>감사 로그가 없습니다.</p>

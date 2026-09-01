@@ -300,10 +300,32 @@ tr:hover .cell-download {
 
 .inline-form {
   display: flex;
-  gap: 0.5rem;
-  align-items: center;
+  gap: 0.75rem;
+  align-items: flex-end;
   flex-wrap: wrap;
   margin-bottom: 1rem;
+}
+
+/* placeholder만으로 입력칸 용도를 안내하면 값을 입력하는 순간 안내 문구가
+   사라져 버려서, 인라인 폼에서도 항상 보이는 작은 라벨을 위에 붙인다. */
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.inline-form label.checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  padding: 0.75rem 0;
 }
 
 .badge {
