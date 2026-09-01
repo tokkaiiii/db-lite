@@ -38,6 +38,10 @@ export function PermissionsPage() {
   }
 
   async function revoke(p: Permission) {
+    const confirmed = confirm(
+      `${usernameOf(p.userId)}의 "${connectionNameOf(p.connectionId)}" 권한을 회수하시겠습니까?`,
+    )
+    if (!confirmed) return
     await api.adminSetPermission(p.userId, p.connectionId, 'none')
     reloadPermissions()
   }
@@ -96,7 +100,9 @@ export function PermissionsPage() {
               <td>{connectionNameOf(p.connectionId)}</td>
               <td>{p.level}</td>
               <td>
-                <button onClick={() => revoke(p)}>회수</button>
+                <button className="button-danger" onClick={() => revoke(p)}>
+                  회수
+                </button>
               </td>
             </tr>
           ))}

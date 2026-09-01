@@ -69,9 +69,10 @@ export function ConnectionsAdminPage() {
     }
   }
 
-  async function handleDelete(id: number) {
-    await api.adminDeleteConnection(id)
-    if (editingId === id) resetForm()
+  async function handleDelete(c: Connection) {
+    if (!confirm(`"${c.name}" Connection을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return
+    await api.adminDeleteConnection(c.id)
+    if (editingId === c.id) resetForm()
     reload()
   }
 
@@ -144,7 +145,9 @@ export function ConnectionsAdminPage() {
               <td>{c.serviceName}</td>
               <td>
                 <button onClick={() => startEdit(c)}>수정</button>
-                <button onClick={() => handleDelete(c.id)}>삭제</button>
+                <button className="button-danger" onClick={() => handleDelete(c)}>
+                  삭제
+                </button>
               </td>
             </tr>
           ))}

@@ -127,6 +127,19 @@ button[type='submit'] {
   font-weight: 600;
 }
 
+/* 삭제/회수처럼 되돌리기 어려운 동작은 다른 버튼과 다르게 눈에 띄어야
+   오클릭을 줄일 수 있다. */
+.button-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--bg);
+}
+
 input, select, textarea {
   background: var(--bg-elevated);
   color: var(--text-bright);
