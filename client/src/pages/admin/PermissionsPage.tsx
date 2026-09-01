@@ -1,125 +1,127 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../api/client'
 import type { Connection, Permission, PermissionLevel, User } from '../../api/types'
+import { DbKindBadge } from '../../components/DbKindBadge'
+import './permissionsPage.css'
 
 const LEVELS: PermissionLevel[] = ['none', 'read', 'write']
+
+const LEVEL_CLASS: Record<PermissionLevel, string> = {
+  none: 'perm-none',
+  read: 'perm-read',
+  write: 'perm-write',
+}
 
 export function PermissionsPage() {
   const [users, setUsers] = useState<User[]>([])
   const [connections, setConnections] = useState<Connection[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
-  const [userId, setUserId] = useState<number | null>(null)
-  const [connectionId, setConnectionId] = useState<number | null>(null)
-  const [level, setLevel] = useState<PermissionLevel>('read')
-  const [status, setStatus] = useState<string | null>(null)
+  const [userQuery, setUserQuery] = useState('')
 
   function reloadPermissions() {
     api.adminListAllPermissions().then(setPermissions)
   }
 
   useEffect(() => {
-    api.adminListUsers().then((u) => {
-      setUsers(u)
-      setUserId(u[0]?.id ?? null)
-    })
-    api.adminListConnections().then((c) => {
-      setConnections(c)
-      setConnectionId(c[0]?.id ?? null)
-    })
+    api.adminListUsers().then(setUsers)
+    api.adminListConnections().then(setConnections)
     reloadPermissions()
   }, [])
 
-  async function apply() {
-    if (userId == null || connectionId == null) return
-    setStatus(null)
-    await api.adminSetPermission(userId, connectionId, level)
-    setStatus('저장되었습니다')
+  const levelMap = useMemo(() => {
+    const map = new Map<string, PermissionLevel>()
+    permissions.forEach((p) => map.set(`${p.userId}:${p.connectionId}`, p.level))
+    return map
+  }, [permissions])
+
+  function levelOf(userId: number, connectionId: number): PermissionLevel {
+    return levelMap.get(`${userId}:${connectionId}`) ?? 'none'
+  }
+
+  async function cycleCell(userId: number, connectionId: number) {
+    const current = levelOf(userId, connectionId)
+    const next = LEVELS[(LEVELS.indexOf(current) + 1) % LEVELS.length]
+    await api.adminSetPermission(userId, connectionId, next)
     reloadPermissions()
   }
 
-  async function revoke(p: Permission) {
-    const confirmed = confirm(
-      `${usernameOf(p.userId)}의 "${connectionNameOf(p.connectionId)}" 권한을 회수하시겠습니까?`,
-    )
-    if (!confirmed) return
-    await api.adminSetPermission(p.userId, p.connectionId, 'none')
-    reloadPermissions()
-  }
-
-  function usernameOf(id: number) {
-    return users.find((u) => u.id === id)?.username ?? `#${id}`
-  }
-
-  function connectionNameOf(id: number) {
-    return connections.find((c) => c.id === id)?.name ?? `#${id}`
-  }
+  const filteredUsers = useMemo(() => {
+    const q = userQuery.trim().toLowerCase()
+    return users.filter((u) => !q || u.username.toLowerCase().includes(q))
+  }, [users, userQuery])
 
   return (
     <div>
       <h1>권한 부여</h1>
-      <div className="inline-form">
-        <label>
-          사용자
-          <select value={userId ?? ''} onChange={(e) => setUserId(Number(e.target.value))}>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.username}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Connection
-          <select value={connectionId ?? ''} onChange={(e) => setConnectionId(Number(e.target.value))}>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          권한
-          <select value={level} onChange={(e) => setLevel(e.target.value as PermissionLevel)}>
-            {LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button onClick={apply}>저장</button>
+      <div className="permissions-toolbar">
+        <div className="user-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" placeholder="사용자 검색" value={userQuery} onChange={(e) => setUserQuery(e.target.value)} />
+        </div>
+        <div className="permissions-legend">
+          <span>
+            <span className="legend-swatch none" /> none
+          </span>
+          <span>
+            <span className="legend-swatch read" /> read
+          </span>
+          <span>
+            <span className="legend-swatch write" /> write
+          </span>
+          <span>셀을 클릭하면 none → read → write 순서로 바뀝니다</span>
+        </div>
       </div>
-      {status && <p>{status}</p>}
 
-      <h2>부여된 권한</h2>
-      {permissions.length === 0 ? (
-        <p className="empty-state">부여된 권한이 없습니다.</p>
+      {users.length === 0 ? (
+        <p className="empty-state">등록된 사용자가 없습니다.</p>
+      ) : connections.length === 0 ? (
+        <p className="empty-state">등록된 Connection이 없습니다.</p>
+      ) : filteredUsers.length === 0 ? (
+        <p className="empty-state">조건에 맞는 사용자가 없습니다.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Connection</th>
-              <th>권한</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {permissions.map((p) => (
-              <tr key={`${p.userId}-${p.connectionId}`}>
-                <td>{usernameOf(p.userId)}</td>
-                <td>{connectionNameOf(p.connectionId)}</td>
-                <td>{p.level}</td>
-                <td>
-                  <button className="button-danger" onClick={() => revoke(p)}>
-                    회수
-                  </button>
-                </td>
+        <div className="permissions-matrix-wrap">
+          <table className="permissions-matrix">
+            <thead>
+              <tr>
+                <th className="user-col">사용자</th>
+                {connections.map((c) => (
+                  <th key={c.id}>
+                    <div className="kind-cell">
+                      <span className="conn-name">{c.name}</span>
+                      <DbKindBadge kind={c.kind} />
+                    </div>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredUsers.map((u) => (
+                <tr key={u.id}>
+                  <td className="user-col">
+                    {u.username}
+                    {u.isAdmin && <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem' }}> (admin)</span>}
+                  </td>
+                  {connections.map((c) => {
+                    const level = levelOf(u.id, c.id)
+                    return (
+                      <td
+                        key={c.id}
+                        className="level-cell"
+                        onClick={() => cycleCell(u.id, c.id)}
+                        title="클릭해서 권한 변경"
+                      >
+                        <div className={`perm-cell-btn ${LEVEL_CLASS[level]}`}>{level}</div>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
