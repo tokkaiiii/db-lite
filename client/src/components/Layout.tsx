@@ -1,11 +1,14 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useMatch } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 export function Layout() {
   const { claims, logout } = useAuth()
+  // QueryPage는 스키마 사이드바를 두고 화면 폭을 그대로 쓴다 — 다른 화면은
+  // 기존 max-width 중앙 정렬 레이아웃을 유지한다.
+  const isQueryPage = useMatch('/connections/:connectionId/query')
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <header className="topbar">
         <nav style={{ alignItems: 'center' }}>
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-bright)', fontWeight: 600, marginRight: '0.5rem' }}>
@@ -28,7 +31,7 @@ export function Layout() {
           </div>
         )}
       </header>
-      <main>
+      <main className={isQueryPage ? 'full-bleed' : undefined}>
         <Outlet />
       </main>
     </div>

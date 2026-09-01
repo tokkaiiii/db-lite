@@ -10,6 +10,7 @@ import { formatDialect, mysql as sqlFormatterMysql, plsql, postgresql, transacts
 import * as api from '../api/client'
 import type { DBKind, QueryResult } from '../api/types'
 import { ApiError } from '../api/client'
+import { SchemaSidebar } from '../components/SchemaSidebar'
 import './queryPage.css'
 
 // PLSQL is the closest lang-sql dialect to Oracle's SQL flavor.
@@ -247,65 +248,68 @@ export function QueryPage() {
   )
 
   return (
-    <div className="query-page">
-      <div className="query-breadcrumb">
-        Connection #{connectionId}
-        {catalogs.length > 0 && (
-          <>
-            {' / '}
-            <select value={catalog} onChange={(e) => setSearchParams({ catalog: e.target.value })}>
-              {catalogs.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-      </div>
-      <div className="query-editor-wrap">
-        <div className="query-floating-toolbar">
-          <button className="run" onClick={run} disabled={running} title="실행 (Ctrl/Cmd+Enter)">
-            ▶
-          </button>
-          <button type="button" onClick={formatEditor} title="포맷팅 (Ctrl/Cmd+Alt+L)">
-            포맷
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const view = editorRef.current?.view
-              if (view) completeCurrentStatement(view)
-            }}
-            title="문장 완성 (Ctrl/Cmd+Shift+Enter)"
-          >
-            ;
-          </button>
-          <button type="button" onClick={loadSchema} title="스키마 새로고침">
-            ↻
-          </button>
+    <div className="query-page-shell">
+      <SchemaSidebar schema={schema} onRefresh={loadSchema} />
+      <div className="query-page">
+        <div className="query-breadcrumb">
+          Connection #{connectionId}
+          {catalogs.length > 0 && (
+            <>
+              {' / '}
+              <select value={catalog} onChange={(e) => setSearchParams({ catalog: e.target.value })}>
+                {catalogs.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
-        <CodeMirror ref={editorRef} value={statement} height="320px" theme="dark" extensions={extensions} onChange={setStatement} />
-      </div>
-      <div className="query-results">
-        {error && <p className="error" style={{ padding: '0.5rem 0.75rem' }}>{error}</p>}
-        {result && (
-          <QueryResultView
-            result={result}
-            connectionId={connectionId ? Number(connectionId) : undefined}
-            catalog={catalog}
-          />
-        )}
-      </div>
-      <div className="query-status">
-        <span>{catalog || '-'}</span>
-        <span>
-          {result?.truncated
-            ? '결과가 최대 행 수로 잘렸습니다'
-            : result
-              ? `${result.rows?.length ?? result.rowsAffected ?? 0}행`
-              : '대기 중'}
-        </span>
+        <div className="query-editor-wrap">
+          <div className="query-floating-toolbar">
+            <button className="run" onClick={run} disabled={running} title="실행 (Ctrl/Cmd+Enter)">
+              ▶
+            </button>
+            <button type="button" onClick={formatEditor} title="포맷팅 (Ctrl/Cmd+Alt+L)">
+              포맷
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const view = editorRef.current?.view
+                if (view) completeCurrentStatement(view)
+              }}
+              title="문장 완성 (Ctrl/Cmd+Shift+Enter)"
+            >
+              ;
+            </button>
+            <button type="button" onClick={loadSchema} title="스키마 새로고침">
+              ↻
+            </button>
+          </div>
+          <CodeMirror ref={editorRef} value={statement} height="320px" theme="dark" extensions={extensions} onChange={setStatement} />
+        </div>
+        <div className="query-results">
+          {error && <p className="error" style={{ padding: '0.5rem 0.75rem' }}>{error}</p>}
+          {result && (
+            <QueryResultView
+              result={result}
+              connectionId={connectionId ? Number(connectionId) : undefined}
+              catalog={catalog}
+            />
+          )}
+        </div>
+        <div className="query-status">
+          <span>{catalog || '-'}</span>
+          <span>
+            {result?.truncated
+              ? '결과가 최대 행 수로 잘렸습니다'
+              : result
+                ? `${result.rows?.length ?? result.rowsAffected ?? 0}행`
+                : '대기 중'}
+          </span>
+        </div>
       </div>
     </div>
   )

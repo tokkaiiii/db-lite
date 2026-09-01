@@ -1,0 +1,117 @@
+.schema-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.schema-sidebar-rail {
+  width: 34px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+  padding-top: 0.6rem;
+}
+
+.schema-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.schema-sidebar-search {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+
+.schema-sidebar-search svg {
+  position: absolute;
+  left: 0.5rem;
+  pointer-events: none;
+}
+
+.schema-sidebar-search input {
+  width: 100%;
+  padding-left: 1.7rem;
+}
+
+.schema-sidebar-header button,
+.schema-sidebar-rail button {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  background: var(--bg-hover);
+}
+
+.schema-sidebar-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+
+.schema-sidebar-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.schema-sidebar-table {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.32rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.83rem;
+}
+
+.schema-sidebar-table:hover {
+  background: var(--bg-hover);
+}
+
+.schema-sidebar-chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 0.1s ease;
+}
+
+.schema-sidebar-table svg:not(.schema-sidebar-chevron) {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.schema-sidebar-table-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.schema-sidebar-count {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.schema-sidebar-columns {
+  padding-left: 1.85rem;
+}
+
+.schema-sidebar-column {
+  padding: 0.22rem 0.75rem 0.22rem 0;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

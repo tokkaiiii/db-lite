@@ -1,9 +1,21 @@
+.query-page-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
 .query-page {
   position: relative;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 1rem;
 }
 
 .query-breadcrumb {
@@ -27,6 +39,7 @@
 
 .query-editor-wrap {
   position: relative;
+  flex-shrink: 0;
 }
 
 .query-floating-toolbar {
@@ -63,7 +76,8 @@
 }
 
 .query-results {
-  max-height: 480px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
