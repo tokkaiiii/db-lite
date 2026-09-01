@@ -156,6 +156,17 @@ export function adminCreateUser(username: string, password: string, isAdmin: boo
   })
 }
 
+export function adminResetUserPassword(id: number, password: string) {
+  return request<User>(`/api/admin/users/${id}/password`, {
+    method: 'PUT',
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function adminDeleteUser(id: number) {
+  return request<void>(`/api/admin/users/${id}`, { method: 'DELETE' })
+}
+
 export interface ConnectionInput {
   name: string
   kind: DBKind

@@ -39,6 +39,18 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 	return scanUser(row)
 }
 
+func (s *Store) UpdateUserPassword(id int64, passwordHash string) (*User, error) {
+	if _, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id); err != nil {
+		return nil, err
+	}
+	return s.GetUserByID(id)
+}
+
+func (s *Store) DeleteUser(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	return err
+}
+
 func (s *Store) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(`SELECT id, username, password_hash, is_admin, created_at FROM users ORDER BY username`)
 	if err != nil {

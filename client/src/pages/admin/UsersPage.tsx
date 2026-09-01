@@ -2,13 +2,17 @@ import { useEffect, useState, type FormEvent } from 'react'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 import type { User } from '../../api/types'
+import { useAuth } from '../../auth/AuthContext'
 
 export function UsersPage() {
+  const { claims } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resetId, setResetId] = useState<number | null>(null)
+  const [newPassword, setNewPassword] = useState('')
 
   function reload() {
     api.adminListUsers().then(setUsers).catch((err) => setError(err.message))
@@ -27,6 +31,39 @@ export function UsersPage() {
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '생성에 실패했습니다')
+    }
+  }
+
+  function startReset(id: number) {
+    setResetId(id)
+    setNewPassword('')
+    setError(null)
+  }
+
+  function cancelReset() {
+    setResetId(null)
+    setNewPassword('')
+  }
+
+  async function submitReset(id: number) {
+    if (!newPassword) return
+    setError(null)
+    try {
+      await api.adminResetUserPassword(id, newPassword)
+      cancelReset()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '비밀번호 재설정에 실패했습니다')
+    }
+  }
+
+  async function handleDelete(u: User) {
+    if (!confirm(`"${u.username}" 사용자를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return
+    setError(null)
+    try {
+      await api.adminDeleteUser(u.id)
+      reload()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '삭제에 실패했습니다')
     }
   }
 
@@ -64,6 +101,7 @@ export function UsersPage() {
               <th>아이디</th>
               <th>Admin</th>
               <th>생성일</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -73,6 +111,37 @@ export function UsersPage() {
                 <td>{u.username}</td>
                 <td>{u.isAdmin && <CheckIcon />}</td>
                 <td>{u.createdAt}</td>
+                <td>
+                  {resetId === u.id ? (
+                    <span className="inline-form" style={{ margin: 0 }}>
+                      <input
+                        type="password"
+                        placeholder="새 비밀번호"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoFocus
+                        style={{ width: '140px' }}
+                      />
+                      <button type="button" onClick={() => submitReset(u.id)}>
+                        저장
+                      </button>
+                      <button type="button" onClick={cancelReset}>
+                        취소
+                      </button>
+                    </span>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => startReset(u.id)}>
+                        비밀번호 재설정
+                      </button>
+                      {u.id !== claims?.userId && (
+                        <button type="button" className="button-danger" onClick={() => handleDelete(u)}>
+                          삭제
+                        </button>
+                      )}
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

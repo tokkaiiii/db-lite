@@ -221,3 +221,65 @@ func TestDeleteConnectionSurvivesExistingAuditLogEntries(t *testing.T) {
 		t.Errorf("ConnectionID = %d after deleting the connection, want 0 (cleared)", entries[0].ConnectionID)
 	}
 }
+
+func TestUpdateUserPasswordChangesHash(t *testing.T) {
+	s := newTestStore(t)
+	u := mustCreateUser(t, s, "alice")
+
+	updated, err := s.UpdateUserPassword(u.ID, "new-hash")
+	if err != nil {
+		t.Fatalf("UpdateUserPassword: %v", err)
+	}
+	if updated.PasswordHash != "new-hash" {
+		t.Errorf("PasswordHash = %q, want %q", updated.PasswordHash, "new-hash")
+	}
+
+	fetched, err := s.GetUserByID(u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if fetched.PasswordHash != "new-hash" {
+		t.Errorf("PasswordHash after re-fetch = %q, want %q", fetched.PasswordHash, "new-hash")
+	}
+}
+
+func TestDeleteUserCascadesPermissionsButPreservesAuditLog(t *testing.T) {
+	s := newTestStore(t)
+	u := mustCreateUser(t, s, "alice")
+	c := mustCreateConnection(t, s, "conn1")
+
+	if err := s.SetPermission(u.ID, c.ID, PermissionRead); err != nil {
+		t.Fatalf("SetPermission: %v", err)
+	}
+	if err := s.InsertAuditLogEntry(AuditLogEntry{
+		UserID: u.ID, ConnectionID: c.ID, Statement: "SELECT 1", Allowed: true,
+	}); err != nil {
+		t.Fatalf("InsertAuditLogEntry: %v", err)
+	}
+
+	if err := s.DeleteUser(u.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	perms, err := s.ListAllPermissions()
+	if err != nil {
+		t.Fatalf("ListAllPermissions: %v", err)
+	}
+	if len(perms) != 0 {
+		t.Errorf("ListAllPermissions after deleting the user returned %d entries, want 0 (ON DELETE CASCADE)", len(perms))
+	}
+
+	// Audit Log Entry is a persistent record — deleting the user must not
+	// delete or block-delete the entry, only clear the user reference (per
+	// audit_log.user_id's ON DELETE SET NULL).
+	entries, err := s.ListAuditLog(10)
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ListAuditLog after deleting the user returned %d entries, want 1 (the entry should survive)", len(entries))
+	}
+	if entries[0].UserID != 0 {
+		t.Errorf("UserID = %d after deleting the user, want 0 (cleared)", entries[0].UserID)
+	}
+}
