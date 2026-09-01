@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../api/client'
 import type { ConnectionWithLevel } from '../api/types'
+import { DbKindBadge } from '../components/DbKindBadge'
 
 export function ConnectionsPage() {
   const [connections, setConnections] = useState<ConnectionWithLevel[] | null>(null)
@@ -35,7 +36,7 @@ export function ConnectionsPage() {
           {connections.map((c) => (
             <tr key={c.id}>
               <td>{c.name}</td>
-              <td>{c.kind}</td>
+              <td><DbKindBadge kind={c.kind} /></td>
               <td>{c.host}:{c.port}</td>
               <td>{c.level}</td>
               <td>

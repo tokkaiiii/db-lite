@@ -71,7 +71,7 @@ export function UsersPage() {
               <tr key={u.id}>
                 <td>{u.id}</td>
                 <td>{u.username}</td>
-                <td>{u.isAdmin ? 'Y' : ''}</td>
+                <td>{u.isAdmin && <CheckIcon />}</td>
                 <td>{u.createdAt}</td>
               </tr>
             ))}
@@ -79,5 +79,24 @@ export function UsersPage() {
         </table>
       )}
     </div>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="check-icon"
+      aria-label="관리자"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   )
 }

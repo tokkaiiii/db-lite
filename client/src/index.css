@@ -352,3 +352,36 @@ tr:hover .cell-download {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Connection 목록에서 종류(mysql/postgres/mssql/oracle)를 한눈에 구분하기
+   위한 색상 배지 — 허용/거부 배지와 겹치지 않도록 다른 색상 계열을 쓴다. */
+.badge-kind {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.badge-kind-mysql {
+  background: rgba(53, 116, 240, 0.18);
+  color: var(--accent);
+}
+
+.badge-kind-postgres {
+  background: rgba(59, 201, 219, 0.18);
+  color: #3bc9db;
+}
+
+.badge-kind-mssql {
+  background: rgba(177, 151, 252, 0.18);
+  color: #b197fc;
+}
+
+.badge-kind-oracle {
+  background: rgba(255, 146, 43, 0.18);
+  color: #ff922b;
+}
+
+.check-icon {
+  color: var(--accent-green);
+  vertical-align: middle;
+}

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 import type { Connection, DBKind } from '../../api/types'
+import { DbKindBadge } from '../../components/DbKindBadge'
 
 const KINDS: DBKind[] = ['mssql', 'mysql', 'postgres', 'oracle']
 const DEFAULT_PORTS: Record<DBKind, number> = {
@@ -163,7 +164,7 @@ export function ConnectionsAdminPage() {
             {connections.map((c) => (
               <tr key={c.id}>
                 <td>{c.name}</td>
-                <td>{c.kind}</td>
+                <td><DbKindBadge kind={c.kind} /></td>
                 <td>{c.host}:{c.port}</td>
                 <td>{c.username}</td>
                 <td>{c.serviceName}</td>
